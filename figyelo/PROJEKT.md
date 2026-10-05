@@ -1,0 +1,97 @@
+# GameNative Figyelő – projektleírás
+
+Ez a repó a [GameNative](https://github.com/utkarshdalal/GameNative) (GPL-3.0) saját változata.
+Cél: Windows-os PC-játékok gyorsítása Androidon, játékonként, mérések alapján.
+Első célpont: Persona 3 Reload (UE4) POCO F8-on (Snapdragon 8s Gen 4, Adreno, HyperOS);
+a menübetöltéskori 10–15 FPS-es esés megértése és javítása.
+
+## Kommunikáció a felhasználóval
+
+- Magyarul, egyszerűen, szakzsargon nélkül. Nem fejlesztő, főleg telefonról dolgozik.
+- Minden lépés végén pontosan meg kell mondani, mit csináljon (melyik gomb a GitHubon, mit töltsön le, mit telepítsen).
+- Kis, egyenként leforduló lépések. Egy fázis akkor kész, ha a GitHub Actions build zöld, és a felhasználó kipróbálta a telefonján.
+- Törlés vagy force-push előtt rá kell kérdezni.
+
+## Elvek és korlátok
+
+- Root nélkül, Android 15/16-on (HyperOS) működjön.
+- Az alapviselkedés ne változzon: minden új funkció kapcsolható, alapból kikapcsolva (kivéve a mérés gombját).
+- A GPL-3.0 licenc és a THIRD_PARTY_NOTICES maradjon érintetlen; Box64/FEX módosításnál az ő licencük marad.
+- A játék kódjából semmi nem kerül a repóba; a mérés csak címeket és statisztikát rögzít.
+- A forkot időnként frissíteni kell az upstreamből: a módosítások legyenek elkülönítve
+  (`figyelo/` mappa, `app.gamenative.figyelo` csomag), és minél kevesebb ponton érintsék a meglévő kódot.
+- PostHog analitika: a mi buildünkben a kulcs üres, nem küld adatot.
+
+## Szakmai háttér
+
+- A CPU-fordító (Box64/FEX) egy x86 blokkot egyszer fordít és gyorsítótáraz; a forró kódnál a lefordított kód
+  minősége számít, nem a fordítás sebessége.
+- Valódi nyereség: fordító-beállítások játékra hangolása; forró függvények natív ARM-os cseréje;
+  GPU-oldalon shadercsere (pl. FP16), drága effektek visszavétele, shader cache, driverválasztás.
+- Nagyságrendek: CPU hangolás 10–30%, natív csere 30–50% a CPU-kötött részeken; GPU hangolás 5–20%,
+  shadercsere 20–50%. Nem adódnak össze, a szűk keresztmetszet számít.
+- A menübetöltési esés valószínű okai UE4 alatt: menet közbeni shaderfordítás (DXVK + driver),
+  CPU-n futó kitömörítés a betöltő szálakon, lassú fájlolvasás. Mérés dönti el.
+- Csak magas és közepes hozamú optimalizálásokkal foglalkozunk.
+
+## Rendszerező logika (a Python `rendszerezo.py`-ból, meg kell tartani)
+
+- Másodperces idővonal; „esés”: FPS < medián 60%-a, vagy 0 FPS (fagyás), vagy egy képkocka
+  > max(100 ms, 4 × medián képkockaidő). Egymás melletti esések összevonása 1 mp-es réssel.
+- Esésenkénti okpontozás: shaderre utaló naplósorok + shaderfordító szálak terhelése; betöltő szálak terhelése;
+  háttértár-olvasás; egy szál ≥85% miközben GPU <75%; GPU ≥90%; CPU-órajel-plafon <75% (hő);
+  szabad memória <600 MB. Fő ok = legnagyobb pontszám (≥0,4).
+- Ha a telített szál maga shaderfordító vagy betöltő szál, az adott okként számít, nem általános CPU-kötöttségként.
+- Javaslatok: MAGAS / KÖZEPES / ALACSONY; elöl csak magas és közepes, az alacsony lenyitható részben.
+- Kimenetek: `jelentes.html` (grafikon: FPS, GPU, legterheltebb szál, esések, jelölések),
+  `osszegzes.json`, `idovonal.csv`.
+- Nyers adat (Python-kompatibilis JSONL): `minta.jsonl`, `kepkockak.jsonl`, `naplo.jsonl`, `jelek.jsonl`, `meta.json`.
+- Ha a felhasználó feltölti a Python referenciát (`tools/figyelo-referencia/`), az ottani logikát és adatformátumot kell követni.
+
+## Fázisok
+
+### 0. fázis – saját build az eredeti mellé (KÉSZ, ha a felhasználó telepítette és elindult egy játék)
+
+- `-Pfigyelo=true` Gradle-kapcsoló: `applicationIdSuffix = ".figyelo"`, név „GameNative Figyelő”
+  (`figyelo/res`), állandó aláírókulcs (`figyelo/figyelo.keystore`, jelszó: `figyelo`).
+- Workflow: `.github/workflows/figyelo-build.yml` – `bundleModernRelease` → bundletool universal APK → artifact.
+- A kódban beégetett `/data/data/app.gamenative/...` útvonalak `BuildConfig.APPLICATION_ID`-re cserélve
+  (upstream buildben a viselkedés azonos), és az `EVSHIM_BASE_PATH` beállítva, hogy a más csomagnevű telepítés is működjön.
+
+### 1. fázis – beépített figyelő
+
+- QuickMenu: „Mérés indítása/leállítása” és „Jelölés” gomb.
+- ~1 Hz mintavétel háttérben (<2–3% többletterhelés): FPS/képkockaidők; `/proc/<pid>/task/*/stat` szálanként;
+  CPU-órajelek; `/proc/stat`; kgsl GPU (`gpu_busy_percentage`, `gpuclk`) ha olvasható; thermal zónák, akku;
+  `/proc/meminfo`; `/proc/<pid>/io`; Wine/DXVK napló időbélyeggel (`DXVK_HUD=fps,compiler`).
+- Rendszerező Kotlinban, jelentés WebView-ban, Megosztás gomb; munkamenetek a Letöltések/GameNativeFigyelo mappába.
+- Meta: eszköz, SoC, Android, konténer-beállítások, fordító (Box64/FEX, arm64ec/x64), driver, DXVK/VKD3D verzió.
+- Kiindulópont: a meglévő `app/src/main/java/app/gamenative/utils/PerfSampler.kt`,
+  `powercontrol/metrics/FrameTimeRing`, `GpuUsageSampler`, `SystemMetricsSources`, `gnoverlay`, `QuickMenu.kt`.
+
+### 2. fázis – utasításszintű mérés (forró kódrészek)
+
+- Saját Box64/FEX build mintavételező profilozóval (`timer_create` + `CLOCK_THREAD_CPUTIME_ID`, ~1 kHz),
+  ARM PC → vendég x86 cím, zármentes gyűrűpuffer szálanként; cím → modul+RVA (`/proc/self/maps`).
+- Fordítói statisztika (blokkok száma, fordítási idő). CI-ben épül, új választható verzióként (`box64-figyelo`).
+- Kész, ha a jelentés mutatja a top 20 forró címtartományt modul+RVA formában, CPU-idő aránnyal.
+
+### 3. fázis – játékprofil és optimalizálás
+
+- Játékprofil (fordító-preset, driver, DXVK, shader cache), natív ARM-os cserék, shadercserék.
+- Indítás a szabott profillal; ha az első percben összeomlik, újraindítás alapbeállításokkal, naplózva.
+
+## Nyitott kérdések
+
+- Hol mérhető legmegbízhatóbban a képkockaidő (gnoverlay, renderer, swapchain hook, meglévő FrameTimeRing)?
+- Olvashatók-e az appból a kgsl GPU-adatok és a thermal zónák HyperOS alatt?
+- Átadja-e a Wine a Windows-os szálneveket (`GameThread`, `RenderThread`) a Linux-szálaknak?
+- P3R-hez a GameNative Box64-et (x64) vagy FEX-et (arm64ec) használ alapból?
+
+## Upstream frissítés
+
+```
+git remote add upstream https://github.com/utkarshdalal/GameNative
+git fetch upstream master
+git merge upstream/master
+```

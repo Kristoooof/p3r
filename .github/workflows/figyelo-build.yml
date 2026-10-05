@@ -1,0 +1,103 @@
+# GameNative Figyelő: builds an APK that installs next to the original GameNative.
+# Needs no secrets: analytics keys stay empty and the APK is signed with figyelo/figyelo.keystore.
+name: GameNative Figyelo build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "release (smaller, faster) or debug (if release fails)"
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - debug
+  push:
+    branches:
+      - main
+      - master
+      - 'claude/**'
+    paths-ignore:
+      - '**.md'
+
+concurrency:
+  group: figyelo-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/lib/node_modules
+          df -h /
+
+      - name: Add swap
+        run: |
+          sudo fallocate -l 8G /mnt/swapfile.ci
+          sudo chmod 600 /mnt/swapfile.ci
+          sudo mkswap /mnt/swapfile.ci
+          sudo swapon /mnt/swapfile.ci
+          free -m
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Empty local.properties (no secrets, no analytics)
+        run: |
+          cat <<EOF > local.properties
+          POSTHOG_API_KEY=
+          POSTHOG_HOST=
+          STEAMGRIDDB_API_KEY=
+          CLOUD_PROJECT_NUMBER=
+          EOF
+
+      - name: Pick build type
+        id: meta
+        run: |
+          TYPE="${{ inputs.build_type }}"
+          [ -z "$TYPE" ] && TYPE=release
+          CAP="$(echo "${TYPE:0:1}" | tr a-z A-Z)${TYPE:1}"
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "cap=$CAP" >> "$GITHUB_OUTPUT"
+          echo "name=GameNative-Figyelo-$TYPE-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build app bundle
+        run: ./gradlew -Pfigyelo=true :app:bundleModern${{ steps.meta.outputs.cap }} --stacktrace
+
+      - name: Stop Gradle daemons
+        run: |
+          ./gradlew --stop
+          df -h /
+
+      - name: Make installable APK
+        run: |
+          AAB="$(ls app/build/outputs/bundle/modern${{ steps.meta.outputs.cap }}/*.aab | head -n1)"
+          echo "Bundle: $AAB"
+          java -Xmx3g -jar tools/bundletool-all-1.17.2.jar build-apks \
+            --bundle="$AAB" --output=figyelo.apks --mode=universal \
+            --ks=figyelo/figyelo.keystore --ks-key-alias=figyelo \
+            --ks-pass=pass:figyelo --key-pass=pass:figyelo
+          unzip -p figyelo.apks universal.apk > "${{ steps.meta.outputs.name }}.apk"
+          rm figyelo.apks
+          ls -la *.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: ${{ steps.meta.outputs.name }}.apk
+          compression-level: 0
+          retention-days: 30

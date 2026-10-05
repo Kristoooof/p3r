@@ -24,6 +24,10 @@ val keystoreProperties: Properties? = if (keystorePropertiesFile.exists()) {
 val posthogApiKey: String = project.findProperty("POSTHOG_API_KEY") as String? ?: System.getenv("POSTHOG_API_KEY") ?: ""
 val posthogHost: String = project.findProperty("POSTHOG_HOST") as String? ?: System.getenv("POSTHOG_HOST") ?: "https://us.i.posthog.com"
 
+// GameNative Figyelő: with -Pfigyelo=true the app gets its own package name, label and
+// fixed signing key, so it installs next to the original GameNative. See figyelo/README.md.
+val figyeloBuild: Boolean = (project.findProperty("figyelo") as String?).toBoolean()
+
 val metaAppId: String = project.findProperty("META_APP_ID") as String? ?: System.getenv("META_APP_ID") ?: ""
 val productSku: String = project.findProperty("PRODUCT_SKU") as String? ?: System.getenv("PRODUCT_SKU") ?: ""
 
@@ -45,6 +49,12 @@ android {
     ndkVersion = "27.3.13750724"
 
     signingConfigs {
+        create("figyelo") {
+            storeFile = rootProject.file("figyelo/figyelo.keystore")
+            storePassword = "figyelo"
+            keyAlias = "figyelo"
+            keyPassword = "figyelo"
+        }
         create("pluvia") {
             if (keystoreProperties != null) {
                 storeFile = file(keystoreProperties["storeFile"].toString())
@@ -57,6 +67,9 @@ android {
 
     defaultConfig {
         applicationId = "app.gamenative"
+        if (figyeloBuild) {
+            applicationIdSuffix = ".figyelo"
+        }
 
         minSdk = 26
 
@@ -166,12 +179,12 @@ android {
             isDebuggable = true
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (figyeloBuild) "figyelo" else "debug")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (figyeloBuild) "figyelo" else "debug")
         }
         create("release-signed") {
             isMinifyEnabled = true
@@ -268,6 +281,9 @@ android {
             java.srcDir("src/nonXr/java")
             assets {
                 srcDirs("src/modern/assets", "src/main/assets")
+            }
+            if (figyeloBuild) {
+                res.srcDir(rootProject.file("figyelo/res"))
             }
         }
         getByName("modernXr") {

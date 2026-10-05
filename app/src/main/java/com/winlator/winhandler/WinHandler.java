@@ -145,6 +145,10 @@ public class WinHandler {
     }
 
     static {
+        try {
+            android.system.Os.setenv("EVSHIM_BASE_PATH", "/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files", false);
+        } catch (android.system.ErrnoException ignored) {
+        }
         System.loadLibrary("evshim");
     }
 

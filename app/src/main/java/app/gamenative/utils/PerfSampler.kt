@@ -13,6 +13,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.view.Display
 import androidx.annotation.RequiresApi
+import app.gamenative.BuildConfig
 import app.gamenative.powercontrol.PowerManager
 import app.gamenative.powercontrol.metrics.FrameTimeRing
 import app.gamenative.powercontrol.metrics.GpuUsageSampler
@@ -817,7 +818,7 @@ object PerfSampler {
             return (
                 entries.firstOrNull { it.first == "A" }
                     ?: entries.firstOrNull { (_, path) ->
-                        !path.endsWith("/Download") && !path.endsWith("app.gamenative/storage")
+                        !path.endsWith("/Download") && !path.endsWith("${BuildConfig.APPLICATION_ID}/storage")
                     }
                 )?.second
         }
