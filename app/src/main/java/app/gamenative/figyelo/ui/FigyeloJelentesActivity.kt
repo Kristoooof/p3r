@@ -3,7 +3,6 @@ package app.gamenative.figyelo.ui
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.webkit.WebView
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -47,6 +46,9 @@ import java.io.File
 /** Lists recorded Figyelő sessions and shows their HTML report. */
 class FigyeloJelentesActivity : ComponentActivity() {
 
+    /** Short status line (the app forbids Toast; SnackbarManager only shows in MainActivity). */
+    private val uzenet = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -79,6 +81,7 @@ class FigyeloJelentesActivity : ComponentActivity() {
                     Button(onClick = { megoszt(mappa, false) }) { Text("Megosztás") }
                     OutlinedButton(onClick = { megoszt(mappa, true) }) { Text("Nyers adatok") }
                 }
+                UzenetSor()
                 val html = remember(mappa, frissites) {
                     File(mappa, Fajlok.JELENTES).takeIf { it.exists() }?.readText()
                         ?: "<p style='font-family:sans-serif;padding:16px'>Ehhez a méréshez még nincs jelentés.</p>"
@@ -96,6 +99,7 @@ class FigyeloJelentesActivity : ComponentActivity() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 6.dp),
             )
+            UzenetSor()
             val lista = remember(frissites) { munkamenetek() }
             if (lista.isEmpty()) {
                 Text("Még nincs mérés.", modifier = Modifier.padding(top = 16.dp))
@@ -119,11 +123,7 @@ class FigyeloJelentesActivity : ComponentActivity() {
                                             runOnUiThread {
                                                 dolgozik = false
                                                 frissites++
-                                                Toast.makeText(
-                                                    this@FigyeloJelentesActivity,
-                                                    if (siker) "Jelentés frissítve" else "Az elemzés nem sikerült",
-                                                    Toast.LENGTH_SHORT,
-                                                ).show()
+                                                uzenet.value = if (siker) "Jelentés frissítve: ${m.name}" else "Az elemzés nem sikerült: ${m.name}"
                                             }
                                         }.start()
                                     },
@@ -135,6 +135,17 @@ class FigyeloJelentesActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    @Composable
+    private fun UzenetSor() {
+        val szoveg = uzenet.value ?: return
+        Text(
+            szoveg,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
     }
 
     private fun leiras(m: File): Pair<String, String> {
@@ -159,7 +170,7 @@ class FigyeloJelentesActivity : ComponentActivity() {
             startActivity(FigyeloExport.megosztas(this, mappa, nyers))
         } catch (e: Exception) {
             Timber.e(e, "Figyelő: megosztás sikertelen")
-            Toast.makeText(this, "A megosztás nem sikerült: ${e.message}", Toast.LENGTH_LONG).show()
+            uzenet.value = "A megosztás nem sikerült: ${e.message}"
         }
     }
 }
