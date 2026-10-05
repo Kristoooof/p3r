@@ -58,14 +58,10 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Keys are left out on purpose: the secrets plugin turns an empty value into broken
+      # Java (`= ;`), while app/build.gradle.kts already defaults every key to "".
       - name: Empty local.properties (no secrets, no analytics)
-        run: |
-          cat <<EOF > local.properties
-          POSTHOG_API_KEY=
-          POSTHOG_HOST=
-          STEAMGRIDDB_API_KEY=
-          CLOUD_PROJECT_NUMBER=
-          EOF
+        run: echo "# GameNative Figyelo: no secrets, analytics disabled" > local.properties
 
       - name: Pick build type
         id: meta
