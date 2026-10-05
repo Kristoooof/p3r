@@ -237,6 +237,22 @@
             android:name=".service.NotificationActionReceiver"
             android:exported="false" />
 
+        <!-- GameNative Figyelő report viewer: only enabled in -Pfigyelo=true builds (own launcher icon). -->
+        <activity
+            android:name=".figyelo.ui.FigyeloJelentesActivity"
+            android:enabled="${figyeloEnabled}"
+            android:exported="${figyeloEnabled}"
+            android:label="Figyelő jelentések"
+            android:icon="${icon}"
+            android:roundIcon="${roundIcon}"
+            android:taskAffinity="${applicationId}.figyelojelentes"
+            android:theme="@style/Theme.Pluvia">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- FileProvider for secure file sharing (for APK installation) -->
         <provider
             android:name="androidx.core.content.FileProvider"

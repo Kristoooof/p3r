@@ -2,7 +2,7 @@
 
 Ez a repó a [GameNative](https://github.com/utkarshdalal/GameNative) (GPL-3.0) saját változata.
 Cél: Windows-os PC-játékok gyorsítása Androidon, játékonként, mérések alapján.
-Első célpont: Persona 3 Reload (UE4) POCO F8-on (Snapdragon 8s Gen 4, Adreno, HyperOS);
+Első célpont: Persona 3 Reload (UE4) a felhasználó POCO F7-én (Snapdragon 8s Gen 4, Adreno, HyperOS);
 a menübetöltéskori 10–15 FPS-es esés megértése és javítása.
 
 ## Kommunikáció a felhasználóval
@@ -50,7 +50,7 @@ a menübetöltéskori 10–15 FPS-es esés megértése és javítása.
 
 ## Fázisok
 
-### 0. fázis – saját build az eredeti mellé (KÉSZ, ha a felhasználó telepítette és elindult egy játék)
+### 0. fázis – saját build az eredeti mellé – KÉSZ (2026-10-05: telepítve, a P3R fut)
 
 - `-Pfigyelo=true` Gradle-kapcsoló: `applicationIdSuffix = ".figyelo"`, név „GameNative Figyelő”
   (`figyelo/res`), állandó aláírókulcs (`figyelo/figyelo.keystore`, jelszó: `figyelo`).
@@ -58,7 +58,19 @@ a menübetöltéskori 10–15 FPS-es esés megértése és javítása.
 - A kódban beégetett `/data/data/app.gamenative/...` útvonalak `BuildConfig.APPLICATION_ID`-re cserélve
   (upstream buildben a viselkedés azonos), és az `EVSHIM_BASE_PATH` beállítva, hogy a más csomagnevű telepítés is működjön.
 
-### 1. fázis – beépített figyelő
+### 1. fázis – beépített figyelő – ELKÉSZÜLT, kipróbálásra vár
+
+Megvalósítás (`app/src/main/java/app/gamenative/figyelo/`):
+- `FigyeloRogzito` (indítás/leállítás/jelölés, 1 Hz-es szál, automatikus leállás, ha a játék folyamatai eltűnnek),
+  `Mintavevo` (rendszeradatok), `FigyeloMeta`, `FigyeloExport` (Letöltések/GameNativeFigyelo, megosztás, zip)
+- `elemzes/` – a rendszerező Kotlinban (`Rendszerezo`, `Kimenet`, `JelentesHtml`, `SzalKategoria`), tiszta Kotlin + org.json
+- `ui/FigyeloQuickMenuResz` – a gyorsmenü „Task Manager” fülének tetején; `ui/FigyeloJelentesActivity` – külön
+  „Figyelő jelentések” ikon (csak `-Pfigyelo=true` buildben engedélyezve)
+- Érintési pontok a meglévő kódban: `QuickMenu.kt` (3 sor + 2 `internal`), `AndroidManifest.xml` (activity),
+  `file_provider_paths.xml`, `app/build.gradle.kts` (`figyeloEnabled` placeholder)
+- Adatformátum: [ADATFORMATUM.md](ADATFORMATUM.md). A Python referencia nem került fel, ha felkerül, igazítani kell hozzá.
+
+Eredeti terv:
 
 - QuickMenu: „Mérés indítása/leállítása” és „Jelölés” gomb.
 - ~1 Hz mintavétel háttérben (<2–3% többletterhelés): FPS/képkockaidők; `/proc/<pid>/task/*/stat` szálanként;

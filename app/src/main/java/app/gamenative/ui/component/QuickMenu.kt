@@ -100,6 +100,7 @@ import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
 import app.gamenative.R
 import app.gamenative.data.GyroSettings
+import app.gamenative.figyelo.ui.FigyeloQuickMenuResz
 import app.gamenative.powercontrol.PowerManager
 import app.gamenative.ui.component.dialog.GyroSettingsDialog
 import app.gamenative.ui.component.dialog.ControlProfileLibraryDialog
@@ -1067,6 +1068,7 @@ fun QuickMenu(
 
                                     QuickMenuTab.TOOLS -> {
                                         ToolsQuickMenuTab(
+                                            container = container,
                                             processes = wineProcesses,
                                             isLoadingProcesses = isWineProcessesLoading,
                                             onEndProcess = onEndWineProcess,
@@ -1319,6 +1321,7 @@ private fun SteamInviteQuickMenuTab(
 
 @Composable
 private fun ToolsQuickMenuTab(
+    container: Container?,
     processes: List<ProcessInfo>,
     isLoadingProcesses: Boolean,
     onEndProcess: (ProcessInfo) -> Unit,
@@ -1334,6 +1337,8 @@ private fun ToolsQuickMenuTab(
             .focusGroup(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        FigyeloQuickMenuResz(container = container, firstItemFocusRequester = firstItemFocusRequester)
+
         QuickMenuSectionHeader(
             title = if (isLoadingProcesses) {
                 stringResource(R.string.main_loading)
@@ -1350,7 +1355,7 @@ private fun ToolsQuickMenuTab(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         } else {
-            processes.forEachIndexed { index, process ->
+            processes.forEach { process ->
                 QuickMenuDetailRow(
                     title = process.name + if (process.wow64Process) " *32" else "",
                     subtitle = process.formattedMemoryUsage,
@@ -1358,7 +1363,6 @@ private fun ToolsQuickMenuTab(
                     onActivate = {
                         onEndProcess(process)
                     },
-                    focusRequester = if (index == 0) firstItemFocusRequester else null,
                 )
             }
         }
@@ -2012,7 +2016,7 @@ private fun ImmersiveQuickMenuTab(
 }
 
 @Composable
-private fun QuickMenuSectionHeader(
+internal fun QuickMenuSectionHeader(
     title: String,
     subtitle: String? = null,
     modifier: Modifier = Modifier,
@@ -2697,7 +2701,7 @@ private fun QuickMenuSwitch(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QuickMenuDetailRow(
+internal fun QuickMenuDetailRow(
     title: String,
     subtitle: String,
     accentColor: Color,

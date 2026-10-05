@@ -4,5 +4,7 @@
     <external-cache-path name="external_cache" path="." />
     <files-path name="diagnostics" path="imagefs/usr/tmp/" />
     <external-files-path name="debug_reports" path="debug_reports/" />
+    <external-files-path name="figyelo" path="figyelo/" />
+    <files-path name="figyelo_belso" path="figyelo/" />
 </paths>
 
