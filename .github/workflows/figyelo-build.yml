@@ -61,7 +61,8 @@ jobs:
       # Keys are left out on purpose: the secrets plugin turns an empty value into broken
       # Java (`= ;`), while app/build.gradle.kts already defaults every key to "".
       - name: Empty local.properties (no secrets, no analytics)
-        run: echo "# GameNative Figyelo: no secrets, analytics disabled" > local.properties
+        run: |
+          echo "# GameNative Figyelo - no secrets, analytics disabled" > local.properties
 
       - name: Pick build type
         id: meta
