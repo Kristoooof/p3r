@@ -370,6 +370,16 @@ internal class Mintavevo(private val context: Context) {
                 .sumOf { ertekek[it] ?: 0L }
             o.put("nemKovetett", (ossz - ismert).coerceAtLeast(0L))
         }
+        // zram keeps compressed swap in kernel memory that /proc/meminfo lists nowhere; subtract it when readable
+        val zram = (0..3).sumOf { i ->
+            runCatching {
+                File("/sys/block/zram$i/mm_stat").readText().trim().split(Regex("\\s+")).getOrNull(2)?.toLongOrNull()
+            }.getOrNull() ?: 0L
+        } / (1024L * 1024L)
+        if (zram > 0) {
+            o.put("zram", zram)
+            o.optLong("nemKovetett", -1L).takeIf { it >= 0 }?.let { o.put("nemKovetett", (it - zram).coerceAtLeast(0L)) }
+        }
         // the GameNative app process itself (X server, renderer, UI) is excluded from the process list
         runCatching { File("/proc/self/statm").readText().trim().split(' ').getOrNull(1)?.toLongOrNull() }.getOrNull()
             ?.let { o.put("appRss", it * lapMeret / (1024L * 1024L)) }

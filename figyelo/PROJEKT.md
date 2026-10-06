@@ -113,6 +113,9 @@ Eredeti terv:
   összehasonlítható, a 4096 hatása eldöntetlen. A P3R RSS-e csak ~0,5 GB (PC-n 3–4 GB), a többi
   valószínűleg zram-ban; a memóriát valami nem látott dolog foglalja (gyanú: GPU/driver, nem kiszorítható). A mérő v5 ezt
   `nemKovetett` néven becsli (MemTotal − ismert tételek), és rögzíti a GameNative saját RSS-ét.
+- 6–7. mérés (v5, Max Device Memory = 4096, ismert helyszínek): beolvasás 600 → ~40 MB/perc, esésidő 5–15 mp / 5 perc,
+  1% low ~15. **A Max Device Memory = 4096 a fő javítás** (játékprofilba való). Maradék: melegedés (plafon akár 1920 MHz),
+  HyperOS ~75%-os plafon, a P3R memóriájának ~80%-a zram-ban (CPU-t visz a kitömörítés).
 - A 2. fázis (FEX profilozó) jelenleg alacsony hozamú: a telített fő szál az esésidő csak 1–15%-a.
 
 ## Nyitott kérdések

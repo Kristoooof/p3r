@@ -177,7 +177,8 @@ ul{margin:4px 0 0 18px;padding:0}
                 listOf(
                     "ossz" to "Teljes memória",
                     "elerheto" to "Elérhető (szabad + kiszorítható)",
-                    "nemKovetett" to "GPU, driver és egyéb kernel (nem kiszorítható, becsült)",
+                    "nemKovetett" to (if (mm.containsKey("zram")) "GPU, driver és egyéb kernel (becsült)" else "GPU, driver, zram és egyéb kernel (becsült)"),
+                    "zram" to "A tömörített cserehely saját memóriája (zram)",
                     "anon" to "Programok adatai (összes app)",
                     "gyorsitotar" to "Fájl-gyorsítótár",
                     "swapHasznalt" to "Tömörített cserehelyen (zram)",

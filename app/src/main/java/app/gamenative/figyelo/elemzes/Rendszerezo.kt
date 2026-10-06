@@ -684,7 +684,9 @@ object Rendszerezo {
             else -> "A „Max Device Memory” már $korlat MB; a játékban vedd lejjebb a textúra- és árnyékminőséget."
         }
         val gpu = e.memoriaMegoszlas["nemKovetett"]
-        val gpuSzoveg = if (gpu != null && gpu >= 2500) {
+        // without a separate zram figure the estimate also contains the compressed swap, so demand more before blaming the GPU
+        val gpuKuszob = if (e.memoriaMegoszlas.containsKey("zram")) 2500 else 6000
+        val gpuSzoveg = if (gpu != null && gpu >= gpuKuszob) {
             " A memóriából kb. ${"%.1f".format(Locale.US, gpu / 1024.0)} GB-ot a GPU és a driver foglal " +
                 "(ezt az Android nem tudja kiszorítani), ezért a játéktól és a fájlok gyorsítótárától veszi el. A leghatásosabb a játékon belül " +
                 "csökkenteni a textúra- és árnyékminőséget, mert az közvetlenül ezt a memóriát csökkenti."

@@ -18,7 +18,7 @@ import java.util.Locale
 internal object FigyeloMeta {
 
     /** Bumped with every Figyelő change that alters what is recorded, so reports show which build measured. */
-    const val FIGYELO_VERZIO = 5
+    const val FIGYELO_VERZIO = 6
 
     fun jatekNev(container: Container?): String {
         if (container == null) return "Ismeretlen játék"
