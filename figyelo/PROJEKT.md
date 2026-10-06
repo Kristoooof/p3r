@@ -93,12 +93,26 @@ Eredeti terv:
 - Játékprofil (fordító-preset, driver, DXVK, shader cache), natív ARM-os cserék, shadercserék.
 - Indítás a szabott profillal; ha az első percben összeomlik, újraindítás alapbeállításokkal, naplózva.
 
+## Mérési eredmények (P3R, POCO F7, 2026-10-06, lásd meresek/)
+
+- Fordító: FEX 2609 (EXTREME), proton-10.0-arm64ec, VKD3D-Proton 3.0b (DX12), Turnip Gen8 V34, 1280×720, 30 FPS limit.
+- A játék a belső tárhelyről fut (`/data/data/<pkg>/CustomGames/...`, az import bemásolja).
+- Medián 29–30 FPS, 1% low 8–10. Az esések 55–84%-a: a fő szál (`P3R.exe`) és a `FAsyncLoadingThread`
+  memóriába leképezett lapokat olvas be (major laphiba ezres nagyságrendben/s, 40–230 MB/s), közben a render- és
+  munkaszálak várnak. Szabad memória végig ~1 GB.
+- A HyperOS végig ~71–75%-ra korlátozza a leggyorsabb mag órajelét (Game Turbo + teljesítmény móddal is).
+- GPU sysfs (kgsl, /sys/kernel/gpu) létezik, de tiltott → GPU-kötöttség csak becsülhető.
+- Szálnevek átjönnek (~80%): GameThread = `P3R.exe` fő szál, `RHIThread`, `RenderThread 1`, `TaskGraphThread`,
+  `FAsyncLoadingThread`, `IoDispatcher`, `IoService`, `PoolThread N`, `vkd3d_queue`.
+- A gyorsmenü megnyitása szünetelteti a játékot (SIGSTOP) → ezek a másodpercek nem esések.
+- A 2. fázis (FEX profilozó) jelenleg alacsony hozamú: a telített fő szál az esésidő csak 1–15%-a.
+
 ## Nyitott kérdések
 
 - Hol mérhető legmegbízhatóbban a képkockaidő (gnoverlay, renderer, swapchain hook, meglévő FrameTimeRing)?
 - Olvashatók-e az appból a kgsl GPU-adatok és a thermal zónák HyperOS alatt?
 - Átadja-e a Wine a Windows-os szálneveket (`GameThread`, `RenderThread`) a Linux-szálaknak?
-- P3R-hez a GameNative Box64-et (x64) vagy FEX-et (arm64ec) használ alapból?
+- (Megválaszolva: a felhasználó konfigja FEX + arm64ec.) Melyik fájlból jönnek a laphibák (pak vagy exe/dll)? → `gyorsitotar` mező
 
 ## Upstream frissítés
 

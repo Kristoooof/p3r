@@ -86,4 +86,18 @@ class RendszerezoTest {
         assertTrue(e.javaslatok.any { it.ok == Ok.ORAJEL_KORLAT })
         assertTrue(e.esesek.none { it.fooOk == Ok.HO })
     }
+
+    @Test
+    fun szunetNemEses() {
+        val mappa = File(tmp.root, "szunet"); keszit(mappa)
+        // seconds 80..84: quick menu open -> paused, 0 FPS
+        val sorok = File(mappa, Fajlok.MINTA).readLines().filter { it.startsWith("{\"") }.map {
+            val o = JSONObject(it)
+            if (o.getDouble("t").toInt() in 80..84) o.put("fps", 0.0).put("szunet", 1) else o
+        }
+        File(mappa, Fajlok.MINTA).writeText(sorok.joinToString("\n") { it.toString() } + "\n")
+        val e = Kimenet.feldolgoz(mappa)
+        assertTrue(e.esesek.none { it.kezdet in 79..85 })
+        assertEquals(5, e.szunetMp)
+    }
 }

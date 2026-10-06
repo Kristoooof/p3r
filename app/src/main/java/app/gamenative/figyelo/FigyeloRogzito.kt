@@ -204,6 +204,7 @@ object FigyeloRogzito {
                 runCatching { jelIro.close() }
             }
             if (mintavevo.sajatKepkockaGyuru && !PerformanceMetricsCollector.isRunning) FrameTimeRing.stop()
+            mintavevo.leallitas()
             _allapot.value = _allapot.value.copy(fut = false, feldolgozas = true, munkamenet = mappa, uzenet = "Jelentés készül…")
             Thread({ feldolgozas() }, "FigyeloFeldolgozas").start()
         }

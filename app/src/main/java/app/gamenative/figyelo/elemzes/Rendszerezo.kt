@@ -35,6 +35,10 @@ data class Masodperc(
     val shaderNaplo: Int,
     val naploDb: Int,
     val jelek: List<String>,
+    /** paused by GameNative (quick menu / overlay): never a drop, left out of the baselines */
+    val szunet: Boolean = false,
+    /** summed RSS of the game's .exe processes */
+    val jatekRssMb: Int? = null,
     var eses: Boolean = false,
 ) {
     /** CPU% of the threads that normally keep a frame going (render + task workers). */
@@ -107,6 +111,18 @@ data class Javaslat(
 
 data class SzalOsszegzes(val nev: String, val kategoria: String, val atlagCpu: Double, val maxCpu: Int)
 
+/** Page-cache history of one big game file over the session. */
+data class FajlOsszegzes(
+    val nev: String,
+    val meretMb: Long,
+    val maxBentMb: Long,
+    val utolsoBentMb: Long,
+    /** sum of increases between snapshots = data paged in */
+    val beolvasottMb: Long,
+    /** sum of decreases = data evicted from memory */
+    val kiszorultMb: Long,
+)
+
 data class Elemzes(
     val idovonal: List<Masodperc>,
     val esesek: List<Eses>,
@@ -134,6 +150,9 @@ data class Elemzes(
     /** game folder location type from meta (belso / appSajatKulso / megosztott / sdKartya) */
     val jatekHely: String? = null,
     val jatekMappa: String? = null,
+    val szunetMp: Int = 0,
+    val fajlok: List<FajlOsszegzes> = emptyList(),
+    val maxJatekRssMb: Int? = null,
 )
 
 /**
@@ -156,6 +175,7 @@ object Rendszerezo {
     const val MEM_KEVES_MB = 600
     const val OLVASAS_SOK_MBS = 40.0
     const val VARAKOZAS_ARANY = 0.6
+    const val FAJL_ABLAK_MP = 6
 
     private class Kontextus(
         val orajelAlap: Double?,
@@ -163,6 +183,8 @@ object Rendszerezo {
         val normalLaphiba: Double,
         val normalDolgozo: Double,
         val gpuOlvashato: Boolean,
+        /** file name -> (t, resident MB) snapshots */
+        val fajlIdovonal: Map<String, List<Pair<Double, Long>>>,
     )
 
     fun elemez(m: Munkamenet): Elemzes {
@@ -171,21 +193,24 @@ object Rendszerezo {
         val elso = idovonal.indexOfFirst { (it.fps ?: 0.0) > 0.0 }
         val utolso = idovonal.indexOfLast { (it.fps ?: 0.0) > 0.0 }
         val tartomany = if (elso >= 0) idovonal.subList(elso, utolso + 1) else emptyList()
+        val jatekban = tartomany.filter { !it.szunet }
 
-        val fpsErtekek = tartomany.mapNotNull { it.fps }.filter { it > 0.0 }
+        val fpsErtekek = jatekban.mapNotNull { it.fps }.filter { it > 0.0 }
         val medianFps = median(fpsErtekek)
         val osszesFt = m.kepkockak.flatMap { it.ms }
         val medianFt = median(osszesFt)
         val ftKorlat = medianFt?.let { max(ESES_FT_MIN_MS, ESES_FT_SZORZO * it) } ?: ESES_FT_MIN_MS
 
         for (s in tartomany) {
+            if (s.szunet) continue
             val fpsEses = s.fps != null && medianFps != null && (s.fps == 0.0 || s.fps < ESES_FPS_ARANY * medianFps)
             val ftEses = s.ftMax != null && s.ftMax > ftKorlat
             s.eses = fpsEses || ftEses
         }
 
-        val nyugodt = tartomany.filter { !it.eses }
-        val orajelAlap = percentilis(tartomany.mapNotNull { it.frekArany }, 0.9)
+        val nyugodt = jatekban.filter { !it.eses }
+        val orajelAlap = percentilis(jatekban.mapNotNull { it.frekArany }, 0.9)
+        val fajlIdovonal = fajlIdovonal(m)
         val gpuOlvashato = idovonal.any { it.gpu != null }
         val kontextus = Kontextus(
             orajelAlap = orajelAlap,
@@ -193,6 +218,7 @@ object Rendszerezo {
             normalLaphiba = median(nyugodt.map { it.laphiba.toDouble() }) ?: 0.0,
             normalDolgozo = median(nyugodt.map { it.dolgozoCpu.toDouble() }) ?: 0.0,
             gpuOlvashato = gpuOlvashato,
+            fajlIdovonal = fajlIdovonal,
         )
 
         val esesek = csoportosit(tartomany).map { ablak -> esesElemzes(ablak, kontextus) }
@@ -247,6 +273,9 @@ object Rendszerezo {
             klaszterPlafon = klaszterPlafon(m),
             jatekHely = kontener?.optString("jatekMappaTipus")?.takeIf { it.isNotBlank() },
             jatekMappa = kontener?.optString("jatekMappa")?.takeIf { it.isNotBlank() },
+            szunetMp = tartomany.count { it.szunet },
+            fajlok = fajlOsszegzes(fajlIdovonal, m),
+            maxJatekRssMb = idovonal.mapNotNull { it.jatekRssMb }.maxOrNull(),
         )
         return elemzes.copy(javaslatok = javaslatok(elemzes))
     }
@@ -292,8 +321,56 @@ object Rendszerezo {
                 shaderNaplo = naploMp[t]?.get(1) ?: 0,
                 naploDb = naploMp[t]?.get(0) ?: 0,
                 jelek = jelMp[t] ?: emptyList(),
+                szunet = minta.szunet || szunetBecsles(minta),
+                jatekRssMb = minta.folyamatok.filter { it.nev.endsWith(".exe", ignoreCase = true) }
+                    .mapNotNull { it.rssMb }.takeIf { it.isNotEmpty() }?.maxOrNull(),
             )
         }
+    }
+
+    /**
+     * For recordings without the explicit pause flag: GameNative pauses by SIGSTOP, so the threads
+     * show up as 'T' (stopped), or the game's .exe process uses no CPU at all.
+     */
+    private fun szunetBecsles(minta: Minta): Boolean {
+        val jatekSzalak = minta.szalak.filter { it.kategoria != SzalKategoria.HANG && it.kategoria != SzalKategoria.WINE }
+        if (jatekSzalak.isNotEmpty() && jatekSzalak.count { it.allapot == "T" || it.allapot == "t" } * 2 > jatekSzalak.size) return true
+        val exe = minta.folyamatok.filter { it.nev.endsWith(".exe", ignoreCase = true) && it.nev.lowercase() !in WINE_EXE }
+        return exe.isNotEmpty() && exe.all { it.cpu == 0 }
+    }
+
+    private val WINE_EXE = setOf(
+        "services.exe", "explorer.exe", "winedevice.exe", "svchost.exe", "plugplay.exe", "rpcss.exe",
+        "start.exe", "winhandler.exe", "tabtip.exe", "conhost.exe",
+    )
+
+    private fun fajlIdovonal(m: Munkamenet): Map<String, List<Pair<Double, Long>>> {
+        val eredmeny = LinkedHashMap<String, MutableList<Pair<Double, Long>>>()
+        for (minta in m.mintak.sortedBy { it.t }) {
+            for (f in minta.gyorsitotar) eredmeny.getOrPut(f.nev) { ArrayList() } += minta.t to f.bentMb
+        }
+        return eredmeny
+    }
+
+    private fun fajlOsszegzes(idovonal: Map<String, List<Pair<Double, Long>>>, m: Munkamenet): List<FajlOsszegzes> {
+        val meretek = HashMap<String, Long>()
+        m.mintak.forEach { minta -> minta.gyorsitotar.forEach { meretek[it.nev] = it.meretMb } }
+        return idovonal.map { (nev, pontok) ->
+            var be = 0L
+            var ki = 0L
+            pontok.zipWithNext().forEach { (a, b) ->
+                val d = b.second - a.second
+                if (d > 0) be += d else ki -= d
+            }
+            FajlOsszegzes(
+                nev = nev,
+                meretMb = meretek[nev] ?: 0L,
+                maxBentMb = pontok.maxOf { it.second },
+                utolsoBentMb = pontok.last().second,
+                beolvasottMb = be,
+                kiszorultMb = ki,
+            )
+        }.sortedByDescending { it.beolvasottMb }
     }
 
     /** Groups drop seconds, merging drops separated by at most [OSSZEVONAS_RES_MP] calm seconds. */
@@ -363,6 +440,19 @@ object Rendszerezo {
         if (iowait >= 10) {
             add(Ok.HATTERTAR, 0.2)
             bizonyitek += "I/O-várakozás: $iowait%"
+        }
+
+        // Which big file was paged in around the drop (page-cache snapshots every ~5 s)
+        val kezd = ablak.first().t
+        val veg = ablak.last().t
+        val beolvasott = k.fajlIdovonal.mapNotNull { (nev, pontok) ->
+            val elotte = pontok.lastOrNull { it.first <= kezd - 1 }?.second ?: return@mapNotNull null
+            val utana = pontok.lastOrNull { it.first <= veg + FAJL_ABLAK_MP }?.second ?: return@mapNotNull null
+            (nev to (utana - elotte)).takeIf { it.second >= 16 }
+        }.sortedByDescending { it.second }
+        if (beolvasott.isNotEmpty()) {
+            add(Ok.HATTERTAR, 0.1)
+            bizonyitek += "Beolvasott fájl: " + beolvasott.take(3).joinToString { "${it.first} (+${it.second} MB)" }
         }
 
         // Saturated single thread while the GPU has headroom. A saturated shader / loading
@@ -524,7 +614,18 @@ object Rendszerezo {
     }
 
     private fun hattertarSzoveg(e: Elemzes): String {
-        val alap = "Az esések alatt a játék a szokásosnál jóval többet olvas a tárhelyről, és közben a szálai várnak. "
+        val beolvasott = e.fajlok.sumOf { it.beolvasottMb }
+        val kiszorult = e.fajlok.sumOf { it.kiszorultMb }
+        val fajlSzoveg = e.fajlok.firstOrNull { it.beolvasottMb > 0 }?.let { f ->
+            "A legtöbbet ebből olvasott: ${f.nev} (${f.beolvasottMb} MB). " +
+                if (kiszorult >= 200 && kiszorult * 4 >= beolvasott) {
+                    "A beolvasott adatból $kiszorult MB később ki is szorult a memóriából, vagyis a kevés szabad memória miatt " +
+                        "a játék ugyanazt többször olvassa be. "
+                } else {
+                    ""
+                }
+        } ?: ""
+        val alap = "Az esések alatt a játék a szokásosnál jóval többet olvas a tárhelyről, és közben a szálai várnak. " + fajlSzoveg
         return when (e.jatekHely) {
             "megosztott" ->
                 alap + "A játék a telefon megosztott tárhelyén van (${e.jatekMappa ?: "pl. Letöltések"}). Ezt a részt az Android egy " +

@@ -37,6 +37,12 @@ internal class Mintavevo(private val context: Context) {
     private val cpuHoUtvonalak: List<String> = runCatching { SystemMetricsSources.cpuTempPaths() }.getOrDefault(emptyList())
 
     private val gpuMintavevo = GpuUsageSampler()
+    private val gyorsitotar = FajlGyorsitotar()
+    private val lapMeret = runCatching { Os.sysconf(OsConstants._SC_PAGESIZE) }.getOrDefault(4096L).coerceAtLeast(1L)
+    private var utolsoGyorsitotar = 0L
+    private var megallitottSzal = 0
+    private var osszesSzal = 0
+    private var jatekPidek: List<Int> = emptyList()
     var gpuForras: String? = null
         private set
 
@@ -128,6 +134,18 @@ internal class Mintavevo(private val context: Context) {
         }
         uresMasodpercek = if (folyamatok.isEmpty()) uresMasodpercek + 1 else 0
 
+        // Paused by GameNative (quick menu / overlay → SIGSTOP) — such seconds are not drops.
+        val overlaySzunet = runCatching { app.gamenative.PluviaApp.isOverlayPaused }.getOrDefault(false)
+        if (overlaySzunet || (osszesSzal > 0 && megallitottSzal * 2 > osszesSzal)) o.put("szunet", 1)
+
+        if (most - utolsoGyorsitotar >= GYORSITOTAR_MS && jatekPidek.isNotEmpty()) {
+            utolsoGyorsitotar = most
+            biztos {
+                gyorsitotar.frissit(jatekPidek, most)
+                gyorsitotar.pillanatkep()
+            }?.takeIf { it.length() > 0 }?.let { o.put("gyorsitotar", it) }
+        }
+
         return Eredmeny(o, kockak)
     }
 
@@ -192,8 +210,15 @@ internal class Mintavevo(private val context: Context) {
         folyamatNevek.keys.retainAll(talalt.toSet())
     }
 
+    fun leallitas() {
+        runCatching { gyorsitotar.bezar() }
+    }
+
     private fun folyamatMinta(dt: Double): Pair<JSONArray, JSONArray> {
         val procs = JSONArray()
+        var megallitott = 0
+        var osszes = 0
+        val jatek = ArrayList<Int>()
         val szalLista = ArrayList<JSONObject>()
         val ujFolyamatTick = HashMap<Int, LongArray>()
         val ujSzalTick = HashMap<Long, LongArray>()
@@ -206,6 +231,8 @@ internal class Mintavevo(private val context: Context) {
                 null
             } ?: continue
             val szamlalok = longArrayOf(stat.utime + stat.stime, stat.majflt, stat.blkio)
+            val jatekFolyamat = nev.endsWith(".exe", ignoreCase = true) && nev.lowercase() !in WINE_FOLYAMATOK
+            if (jatekFolyamat) jatek += pid
             ujFolyamatTick[pid] = szamlalok
             val elozo = elozoFolyamatTick[pid]
             val io = try {
@@ -226,6 +253,9 @@ internal class Mintavevo(private val context: Context) {
                 // delayacct_blkio_ticks: time spent waiting for block I/O (0 if the kernel has delay accounting off)
                 val blk = szazalek(szamlalok[2] - elozo[2], dt)
                 if (blk > 0) p.put("blk", blk)
+                runCatching {
+                    File("/proc/$pid/statm").readText().trim().split(' ').getOrNull(1)?.toLongOrNull()
+                }.getOrNull()?.let { p.put("rssMb", it * lapMeret / (1024L * 1024L)) }
                 procs.put(p)
             }
             val taskok = File("/proc/$pid/task").listFiles() ?: continue
@@ -236,6 +266,10 @@ internal class Mintavevo(private val context: Context) {
                 } catch (_: Exception) {
                     null
                 } ?: continue
+                if (jatekFolyamat) {
+                    osszes++
+                    if (ts.allapot == 'T' || ts.allapot == 't') megallitott++
+                }
                 val kulcs = (pid.toLong() shl 32) or tid.toLong()
                 val most = longArrayOf(ts.utime + ts.stime, ts.majflt)
                 ujSzalTick[kulcs] = most
@@ -258,6 +292,9 @@ internal class Mintavevo(private val context: Context) {
         elozoFolyamatTick = ujFolyamatTick
         elozoSzalTick = ujSzalTick
         elozoIo = ujIo
+        megallitottSzal = megallitott
+        osszesSzal = osszes
+        jatekPidek = jatek
         val szalak = JSONArray()
         szalLista.sortedWith(
             compareByDescending<JSONObject> { it.optInt("cpu") + if (it.optString("all") == "D") 1000 else 0 }
@@ -409,6 +446,11 @@ internal class Mintavevo(private val context: Context) {
 
     companion object {
         private const val MAX_SZAL = 40
+        private const val GYORSITOTAR_MS = 5_000L
+        private val WINE_FOLYAMATOK = setOf(
+            "services.exe", "explorer.exe", "winedevice.exe", "svchost.exe", "plugplay.exe", "rpcss.exe",
+            "start.exe", "winhandler.exe", "tabtip.exe", "conhost.exe", "steam.exe", "steamwebhelper.exe",
+        )
         private val betoltoNevek = listOf("linker64", "linker", "box64", "box86", "FEXInterpreter", "FEXLoader", "wine64-preloader", "wine-preloader")
     }
 }

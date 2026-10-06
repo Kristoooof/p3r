@@ -79,6 +79,10 @@ ul{margin:4px 0 0 18px;padding:0}
             kpi(idoSzoveg(e.esesIdoMp), "esésben töltött idő")
             e.orajelPlafon?.let { kpi("${(it * 100).roundToInt()}%", "CPU-órajel plafon (a max.-hoz)") }
             append("</div>")
+            if (e.szunetMp > 0) {
+                append("<p class=\"muted small\">A játék ").append(idoSzoveg(e.szunetMp))
+                    .append("-ig szünetelt (gyorsmenü), ezt az esések nem tartalmazzák.</p>")
+            }
             if (e.kezdoBetoltesMp > 0) {
                 append("<p class=\"muted small\">Az első ").append(idoSzoveg(e.kezdoBetoltesMp))
                     .append(" kezdő betöltés volt (még nem jelent meg kép), ezt az esések nem tartalmazzák.</p>")
@@ -144,6 +148,20 @@ ul{margin:4px 0 0 18px;padding:0}
                 append("<tr><td>").append(esc(SzalKategoria.cimke(k))).append("</td><td>").append(v.roundToInt()).append("%</td></tr>")
             }
             append("</table></div>")
+
+            if (e.fajlok.isNotEmpty()) {
+                append("<h2>Fájlok a memóriában</h2><div class=\"card tablewrap\"><table><tr><th>Fájl</th><th>Méret</th>")
+                    .append("<th>Beolvasva</th><th>Kiszorult</th><th>Végén bent</th></tr>")
+                e.fajlok.take(10).forEach {
+                    append("<tr><td>").append(esc(it.nev)).append("</td><td>").append(it.meretMb).append(" MB</td><td>")
+                        .append(it.beolvasottMb).append(" MB</td><td>").append(it.kiszorultMb).append(" MB</td><td>")
+                        .append(it.utolsoBentMb).append(" MB</td></tr>")
+                }
+                append("</table><p class=\"muted small\">A „kiszorult” rész a kevés szabad memória miatt kikerült a gyorsítótárból, ")
+                    .append("ha újra kell, megint a tárhelyről jön.")
+                e.maxJatekRssMb?.let { append(" A játék memóriahasználata csúcson: ").append(it).append(" MB.") }
+                append("</p></div>")
+            }
 
             append("<h2>Mérési adatforrások</h2><div class=\"card small\"><ul>")
             forras("GPU-terhelés", e.gpuOlvashato, meta.optJSONObject("olvashato")?.optString("gpuForras"))

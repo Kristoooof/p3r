@@ -46,7 +46,11 @@ data class Folyamat(
     val mf: Int = 0,
     /** % of the second spent waiting for block I/O (delay accounting; 0 when unavailable) */
     val blk: Int = 0,
+    val rssMb: Int? = null,
 )
+
+/** Page-cache residency of one big game file at a sample (every ~5 s). */
+data class FajlAllapot(val nev: String, val bentMb: Long, val meretMb: Long)
 
 data class Minta(
     val t: Double,
@@ -66,6 +70,9 @@ data class Minta(
     val memSzabadMb: Int?,
     val folyamatok: List<Folyamat>,
     val szalak: List<Szal>,
+    /** game paused by GameNative (quick menu / overlay) */
+    val szunet: Boolean = false,
+    val gyorsitotar: List<FajlAllapot> = emptyList(),
 )
 
 data class KepkockaCsomag(val t: Double, val ms: List<Double>)
@@ -140,6 +147,7 @@ object Beolvaso {
                     rchar = p.optLong("rchar"),
                     mf = p.optInt("mf"),
                     blk = p.optInt("blk"),
+                    rssMb = p.optIntOrNull("rssMb"),
                 )
             },
             szalak = o.optJSONArray("szalak").objects().map { s ->
@@ -152,6 +160,17 @@ object Beolvaso {
                     allapot = s.optString("all"),
                     mf = s.optInt("mf"),
                 )
+            },
+            szunet = o.optInt("szunet") == 1,
+            gyorsitotar = o.optJSONArray("gyorsitotar").let { arr ->
+                if (arr == null) {
+                    emptyList()
+                } else {
+                    (0 until arr.length()).mapNotNull { i ->
+                        val e = arr.optJSONArray(i) ?: return@mapNotNull null
+                        FajlAllapot(e.optString(0), e.optLong(1), e.optLong(2))
+                    }
+                }
             },
         )
     }

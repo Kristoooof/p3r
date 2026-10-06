@@ -84,6 +84,8 @@ object Kimenet {
                     JSONArray().apply { e.klaszterPlafon.forEach { put(JSONArray().put(it.first).put(it.second)) } },
                 )
                 putOpt("jatekHely", e.jatekHely)
+                put("szunetMp", e.szunetMp)
+                putOpt("maxJatekRssMb", e.maxJatekRssMb)
             },
         )
         put(
@@ -94,6 +96,17 @@ object Kimenet {
                 put("homerseklet", e.homOlvashato)
                 putOpt("szalnevArany", e.szalnevArany?.r2())
                 putOpt("gpuForras", m.meta.optJSONObject("olvashato")?.optString("gpuForras"))
+            },
+        )
+        put(
+            "fajlok",
+            JSONArray().apply {
+                e.fajlok.forEach {
+                    put(
+                        JSONObject().put("nev", it.nev).put("meretMb", it.meretMb).put("maxBentMb", it.maxBentMb)
+                            .put("utolsoBentMb", it.utolsoBentMb).put("beolvasottMb", it.beolvasottMb).put("kiszorultMb", it.kiszorultMb),
+                    )
+                }
             },
         )
         put("kategoriaAtlagCpu", JSONObject().apply { e.kategoriaAtlag.forEach { (k, v) -> put(k, v.r1()) } })
