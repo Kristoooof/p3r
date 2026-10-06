@@ -44,8 +44,31 @@ internal object FigyeloMeta {
                 put("gpuFrek", mintavevo.gpuFrekUtvonal != null)
                 putOpt("gpuFrekForras", mintavevo.gpuFrekUtvonal)
                 put("cpuFrek", mintavevo.klaszterek.isNotEmpty())
+                put("gpuFajlok", gpuDiagnosztika())
             },
         )
+    }
+
+    /** Which GPU sysfs nodes exist / are readable on this phone (vendors often block them). */
+    private fun gpuDiagnosztika(): JSONObject = JSONObject().apply {
+        listOf(
+            "/sys/class/kgsl/kgsl-3d0/gpubusy",
+            "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
+            "/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load",
+            "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
+            "/sys/class/kgsl/kgsl-3d0/gpuclk",
+            "/sys/kernel/gpu/gpu_busy",
+            "/sys/kernel/gpu/gpu_clock",
+            "/sys/kernel/gpu/gpu_model",
+        ).forEach { ut ->
+            val f = File(ut)
+            val allapot = when {
+                f.canRead() -> runCatching { f.readText().trim().take(40) }.getOrNull()?.let { "olvashato: $it" } ?: "olvashato"
+                runCatching { f.exists() }.getOrDefault(false) -> "tiltott"
+                else -> "nincs"
+            }
+            put(ut, allapot)
+        }
     }
 
     private fun eszkoz(context: Context, mintavevo: Mintavevo): JSONObject = JSONObject().apply {
@@ -102,5 +125,34 @@ internal object FigyeloMeta {
         s("cpuLista") { c.getCPUList() }
         s("kornyezetiValtozok") { c.getEnvVars() }
         s("hang") { c.getAudioDriver() }
+        s("meghajtok") { c.getDrives() }
+        runCatching { jatekMappa(c.getDrives()) }.getOrNull()?.let { mappa ->
+            put("jatekMappa", mappa)
+            put("jatekMappaTipus", helyTipus(mappa))
+        }
+    }
+
+    /** Game folder = the A: drive (custom games) or the first non-default drive. */
+    private fun jatekMappa(drives: String?): String? {
+        if (drives.isNullOrBlank()) return null
+        val lista = Container.drivesIterator(drives).map { it[0] to it[1] }
+        val ut = (
+            lista.firstOrNull { it.first == "A" }
+                ?: lista.firstOrNull { (_, p) -> !p.endsWith("/Download") && !p.endsWith("${BuildConfig.APPLICATION_ID}/storage") }
+            )?.second ?: return null
+        return runCatching { File(ut).canonicalPath }.getOrDefault(ut)
+    }
+
+    /**
+     * internal = the app's own private storage (fast); appSajatKulso = Android/data/<pkg> (bind-mounted, fast);
+     * megosztott = shared storage such as Download/ (goes through Android's FUSE layer, slower);
+     * sdKartya = removable storage.
+     */
+    fun helyTipus(ut: String): String = when {
+        ut.startsWith("/data/data/") || ut.startsWith("/data/user/") -> "belso"
+        ut.contains("/Android/data/${BuildConfig.APPLICATION_ID}") && ut.startsWith("/storage/emulated/") -> "appSajatKulso"
+        ut.startsWith("/storage/emulated/") || ut.startsWith("/sdcard") -> "megosztott"
+        ut.startsWith("/storage/") -> "sdKartya"
+        else -> "ismeretlen"
     }
 }

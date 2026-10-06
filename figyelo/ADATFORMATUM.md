@@ -12,7 +12,9 @@ Minden `.jsonl` fájlban soronként egy JSON objektum van; a `t` a mérés kezde
 - `kontener`: `emulator` (Box64 / FEXCore), `box64Verzio`, `box64Preset`, `fexVerzio`, `fexPreset`, `wineVerzio`
   (arm64ec / x64 itt látszik), `wow64`, `driver`, `driverVerzio`, `driverBeallitas`, `dxwrapper` (DXVK/VKD3D verzió),
   `dxwrapperBeallitas`, `kepernyo`, `cpuLista`, `kornyezetiValtozok`, `exe`, …
-- `olvashato`: mely rendszeradatok olvashatók (`procStat`, `gpuFrek`, `cpuFrek`)
+  - `meghajtok`, `jatekMappa` (az A: meghajtó), `jatekMappaTipus`: `belso` / `appSajatKulso` / `megosztott` (FUSE) / `sdKartya`
+- `olvashato`: mely rendszeradatok olvashatók (`procStat`, `gpuFrek`, `cpuFrek`), `gpuFajlok`: a GPU sysfs fájlok állapota
+  (`olvashato: …` / `tiltott` / `nincs`)
 
 ## minta.jsonl (másodpercenként)
 | kulcs | jelentés |
@@ -24,8 +26,8 @@ Minden `.jsonl` fájlban soronként egy JSON objektum van; a `t` a mérés kezde
 | `hom` | `{cpu, akku, bor}` °C |
 | `hoAllapot` | Android hőállapot (0 = nincs, 3 = súlyos, …) |
 | `memSzabadMb` | szabad memória |
-| `folyamatok` | `[{pid, nev, cpu, olv, rchar}]` – a játék oldali folyamatok (az app uid-ja), CPU % (100 = egy mag), `olv` = tárhelyről olvasott bájt/s, `rchar` = olvasott bájt/s gyorsítótárral |
-| `szalak` | `[{pid, tid, nev, kat, cpu, all}]` – a legterheltebb (≥1%) szálak, max. 40; `kat`: shader, betoltes, render, jatek, munkaszal, hang, wine, egyeb |
+| `folyamatok` | `[{pid, nev, cpu, olv, rchar, mf, blk}]` – a játék oldali folyamatok (az app uid-ja), CPU % (100 = egy mag), `olv` = tárhelyről olvasott bájt/s, `rchar` = olvasott bájt/s gyorsítótárral, `mf` = major laphiba/s (memóriába leképezett fájlok olvasása), `blk` = I/O-várakozás % (csak ha a kernel méri) |
+| `szalak` | `[{pid, tid, nev, kat, cpu, all, mf}]` – a legterheltebb (≥1%) szálak, a laphibázó és a `D` (I/O-ra váró) állapotú szálak, max. 40; `kat`: shader, betoltes, render, jatek, munkaszal, hang, wine, egyeb |
 
 ## kepkockak.jsonl
 `{t, ms:[…]}` – az adott másodpercben megjelenített képkockák ideje ms-ban (a GameNative X-szerver megjelenítési útvonalából, `FrameTimeRing`).

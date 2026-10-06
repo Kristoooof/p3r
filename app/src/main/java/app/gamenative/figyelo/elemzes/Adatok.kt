@@ -30,6 +30,8 @@ data class Szal(
     val kategoria: String,
     val cpu: Int,
     val allapot: String,
+    /** major page faults / s (pages read from storage on demand, e.g. memory-mapped files) */
+    val mf: Int = 0,
 )
 
 data class Folyamat(
@@ -40,6 +42,10 @@ data class Folyamat(
     val olvasas: Long,
     /** bytes/s read through read()-like calls incl. page cache (/proc/pid/io rchar) */
     val rchar: Long,
+    /** major page faults / s */
+    val mf: Int = 0,
+    /** % of the second spent waiting for block I/O (delay accounting; 0 when unavailable) */
+    val blk: Int = 0,
 )
 
 data class Minta(
@@ -132,6 +138,8 @@ object Beolvaso {
                     cpu = p.optInt("cpu"),
                     olvasas = p.optLong("olv"),
                     rchar = p.optLong("rchar"),
+                    mf = p.optInt("mf"),
+                    blk = p.optInt("blk"),
                 )
             },
             szalak = o.optJSONArray("szalak").objects().map { s ->
@@ -142,6 +150,7 @@ object Beolvaso {
                     kategoria = s.optString("kat").ifEmpty { SzalKategoria.besorol(s.optString("nev")) },
                     cpu = s.optInt("cpu"),
                     allapot = s.optString("all"),
+                    mf = s.optInt("mf"),
                 )
             },
         )

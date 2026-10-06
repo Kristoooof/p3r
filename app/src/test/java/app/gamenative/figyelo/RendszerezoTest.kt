@@ -73,4 +73,17 @@ class RendszerezoTest {
         assertEquals(SzalKategoria.WINE, SzalKategoria.besorol("wineserver", true, "wineserver"))
         assertTrue(SzalKategoria.shaderNaploSor("info: Compiling pipeline"))
     }
+
+    @Test
+    fun allandoOrajelKorlatNemHo() {
+        val mappa = File(tmp.root, "korlat"); keszit(mappa)
+        // the whole session runs with the fastest cluster capped to 2300 / 3200 MHz
+        val sorok = File(mappa, Fajlok.MINTA).readLines().filter { it.startsWith("{\"") }.map {
+            JSONObject(it).put("frekMax", JSONArray(listOf(2000, 2300))).toString()
+        }
+        File(mappa, Fajlok.MINTA).writeText(sorok.joinToString("\n") + "\n")
+        val e = Kimenet.feldolgoz(mappa)
+        assertTrue(e.javaslatok.any { it.ok == Ok.ORAJEL_KORLAT })
+        assertTrue(e.esesek.none { it.fooOk == Ok.HO })
+    }
 }

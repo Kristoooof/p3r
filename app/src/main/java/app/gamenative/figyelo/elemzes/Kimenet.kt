@@ -27,7 +27,7 @@ object Kimenet {
         val katok = SzalKategoria.MIND
         append("t,fps,kepkocka_med_ms,kepkocka_max_ms,cpu,iowait,gpu,gpu_mhz,top_szal,top_szal_kat,top_szal_cpu,")
         append(katok.joinToString(",") { "${it}_cpu" })
-        append(",olvasas_mbs,rchar_mbs,frek_arany,mem_szabad_mb,hom_cpu,ho_allapot,naplo_sorok,shader_naplo,jel,eses\n")
+        append(",olvasas_mbs,rchar_mbs,laphiba,blkio,d_szalak,frek_arany,mem_szabad_mb,hom_cpu,ho_allapot,naplo_sorok,shader_naplo,jel,eses\n")
         for (s in e.idovonal) {
             val mezok = ArrayList<String>()
             mezok += s.t.toString()
@@ -44,6 +44,9 @@ object Kimenet {
             katok.forEach { mezok += (s.katCpu[it] ?: 0).toString() }
             mezok += s.olvasasMBs.f1()
             mezok += s.rcharMBs.f1()
+            mezok += s.laphiba.toString()
+            mezok += s.blkio.toString()
+            mezok += idezett(s.dSzalak.joinToString(" | "))
             mezok += s.frekArany?.let { String.format(Locale.US, "%.2f", it) } ?: ""
             mezok += s.memSzabadMb.s()
             mezok += s.homCpu.s()
@@ -74,6 +77,13 @@ object Kimenet {
                 put("esesekSzama", e.esesek.size)
                 put("esesIdoMp", e.esesIdoMp)
                 put("okEloszlasMp", JSONObject(e.okEloszlas.toMap()))
+                put("kezdoBetoltesMp", e.kezdoBetoltesMp)
+                putOpt("orajelPlafon", e.orajelPlafon?.r2())
+                put(
+                    "klaszterPlafonMhz",
+                    JSONArray().apply { e.klaszterPlafon.forEach { put(JSONArray().put(it.first).put(it.second)) } },
+                )
+                putOpt("jatekHely", e.jatekHely)
             },
         )
         put(

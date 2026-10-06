@@ -41,8 +41,8 @@ internal class Mintavevo(private val context: Context) {
         private set
 
     private var elozoCpuStat: Map<String, LongArray>? = null
-    private var elozoFolyamatTick = HashMap<Int, Long>()
-    private var elozoSzalTick = HashMap<Long, Long>()
+    private var elozoFolyamatTick = HashMap<Int, LongArray>()
+    private var elozoSzalTick = HashMap<Long, LongArray>()
     private var elozoIo = HashMap<Int, LongArray>()
     private val folyamatNevek = HashMap<Int, String>()
     private var folyamatok: List<Int> = emptyList()
@@ -195,8 +195,8 @@ internal class Mintavevo(private val context: Context) {
     private fun folyamatMinta(dt: Double): Pair<JSONArray, JSONArray> {
         val procs = JSONArray()
         val szalLista = ArrayList<JSONObject>()
-        val ujFolyamatTick = HashMap<Int, Long>()
-        val ujSzalTick = HashMap<Long, Long>()
+        val ujFolyamatTick = HashMap<Int, LongArray>()
+        val ujSzalTick = HashMap<Long, LongArray>()
         val ujIo = HashMap<Int, LongArray>()
         for (pid in folyamatok) {
             val nev = folyamatNevek[pid] ?: continue
@@ -205,8 +205,8 @@ internal class Mintavevo(private val context: Context) {
             } catch (_: Exception) {
                 null
             } ?: continue
-            val tick = stat.utime + stat.stime
-            ujFolyamatTick[pid] = tick
+            val szamlalok = longArrayOf(stat.utime + stat.stime, stat.majflt, stat.blkio)
+            ujFolyamatTick[pid] = szamlalok
             val elozo = elozoFolyamatTick[pid]
             val io = try {
                 ioOlvas(pid)
@@ -215,12 +215,17 @@ internal class Mintavevo(private val context: Context) {
             }
             if (io != null) ujIo[pid] = io
             if (elozo != null && dt > 0.0) {
-                val p = JSONObject().put("pid", pid).put("nev", nev).put("cpu", szazalek(tick - elozo, dt))
+                val p = JSONObject().put("pid", pid).put("nev", nev).put("cpu", szazalek(szamlalok[0] - elozo[0], dt))
                 val elozoIo = elozoIo[pid]
                 if (io != null && elozoIo != null) {
                     p.put("olv", ((io[0] - elozoIo[0]).coerceAtLeast(0L) / dt).toLong())
                     p.put("rchar", ((io[1] - elozoIo[1]).coerceAtLeast(0L) / dt).toLong())
                 }
+                val mf = ((szamlalok[1] - elozo[1]).coerceAtLeast(0L) / dt).roundToInt()
+                if (mf > 0) p.put("mf", mf)
+                // delayacct_blkio_ticks: time spent waiting for block I/O (0 if the kernel has delay accounting off)
+                val blk = szazalek(szamlalok[2] - elozo[2], dt)
+                if (blk > 0) p.put("blk", blk)
                 procs.put(p)
             }
             val taskok = File("/proc/$pid/task").listFiles() ?: continue
@@ -232,12 +237,14 @@ internal class Mintavevo(private val context: Context) {
                     null
                 } ?: continue
                 val kulcs = (pid.toLong() shl 32) or tid.toLong()
-                val tt = ts.utime + ts.stime
-                ujSzalTick[kulcs] = tt
+                val most = longArrayOf(ts.utime + ts.stime, ts.majflt)
+                ujSzalTick[kulcs] = most
                 val e = elozoSzalTick[kulcs] ?: continue
                 if (dt <= 0.0) continue
-                val cpu = szazalek(tt - e, dt)
-                if (cpu < 1) continue
+                val cpu = szazalek(most[0] - e[0], dt)
+                val mf = ((most[1] - e[1]).coerceAtLeast(0L) / dt).roundToInt()
+                // Threads blocked on I/O ('D') use no CPU, so keep them even below 1%.
+                if (cpu < 1 && mf == 0 && ts.allapot != 'D') continue
                 szalLista += JSONObject()
                     .put("pid", pid)
                     .put("tid", tid)
@@ -245,22 +252,34 @@ internal class Mintavevo(private val context: Context) {
                     .put("kat", SzalKategoria.besorol(ts.comm, tid == pid, nev))
                     .put("cpu", cpu)
                     .put("all", ts.allapot.toString())
+                    .apply { if (mf > 0) put("mf", mf) }
             }
         }
         elozoFolyamatTick = ujFolyamatTick
         elozoSzalTick = ujSzalTick
         elozoIo = ujIo
         val szalak = JSONArray()
-        szalLista.sortedByDescending { it.optInt("cpu") }.take(MAX_SZAL).forEach { szalak.put(it) }
+        szalLista.sortedWith(
+            compareByDescending<JSONObject> { it.optInt("cpu") + if (it.optString("all") == "D") 1000 else 0 }
+                .thenByDescending { it.optInt("mf") },
+        ).take(MAX_SZAL).forEach { szalak.put(it) }
         return procs to szalak
     }
 
-    private class Stat(val comm: String, val allapot: Char, val utime: Long, val stime: Long)
+    private class Stat(
+        val comm: String,
+        val allapot: Char,
+        val utime: Long,
+        val stime: Long,
+        val majflt: Long,
+        val blkio: Long,
+    )
 
     private fun statOlvas(stat: String): Stat? {
         val nyit = stat.indexOf('(')
         val zar = stat.lastIndexOf(')')
         if (nyit < 0 || zar < nyit || zar + 2 > stat.length) return null
+        // Fields after "(comm) ": state ppid pgrp session tty tpgid flags minflt cminflt majflt cmajflt utime stime …
         val tobbi = stat.substring(zar + 2).split(' ')
         if (tobbi.size < 13) return null
         return Stat(
@@ -268,6 +287,8 @@ internal class Mintavevo(private val context: Context) {
             allapot = tobbi[0].firstOrNull() ?: '?',
             utime = tobbi[11].toLongOrNull() ?: return null,
             stime = tobbi[12].toLongOrNull() ?: return null,
+            majflt = tobbi[9].toLongOrNull() ?: 0L,
+            blkio = tobbi.getOrNull(39)?.toLongOrNull() ?: 0L,
         )
     }
 
@@ -295,8 +316,13 @@ internal class Mintavevo(private val context: Context) {
         }
         val exe = args.firstOrNull { it.endsWith(".exe", ignoreCase = true) }
             ?: args.firstOrNull { it.contains(".exe", ignoreCase = true) }
+        // On modern Android every Wine-side binary is started as "/system/bin/linker64 <binary>",
+        // so skip loader / emulator wrappers to get e.g. "wineserver" instead of "linker64".
+        val program = args.map { it.substringAfterLast('/') }.firstOrNull { a ->
+            a.isNotEmpty() && !a.startsWith("-") && betoltoNevek.none { a.equals(it, ignoreCase = true) } && !a.startsWith("ld-")
+        }
         val comm = runCatching { File(dir, "comm").readText().trim() }.getOrDefault("?")
-        return (exe ?: comm).substringAfterLast('/').substringAfterLast('\\').take(60)
+        return (exe ?: program ?: comm).substringAfterLast('/').substringAfterLast('\\').take(60)
     }
 
     private fun szazalek(tick: Long, dt: Double): Int = (tick.coerceAtLeast(0L) * 100.0 / (clkTck * dt)).roundToInt()
@@ -383,5 +409,6 @@ internal class Mintavevo(private val context: Context) {
 
     companion object {
         private const val MAX_SZAL = 40
+        private val betoltoNevek = listOf("linker64", "linker", "box64", "box86", "FEXInterpreter", "FEXLoader", "wine64-preloader", "wine-preloader")
     }
 }

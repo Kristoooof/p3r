@@ -21,6 +21,12 @@ data class Masodperc(
     val katCpu: Map<String, Int>,
     val olvasasMBs: Double,
     val rcharMBs: Double,
+    /** major page faults / s summed over the game-side processes */
+    val laphiba: Int,
+    /** max % of the second a process waited for block I/O (0 without kernel delay accounting) */
+    val blkio: Int,
+    /** names of threads blocked in uninterruptible ('D', usually I/O) state */
+    val dSzalak: List<String>,
     /** scaling_max_freq / cpuinfo_max_freq of the fastest cluster, 0..1 */
     val frekArany: Double?,
     val memSzabadMb: Int?,
@@ -30,7 +36,10 @@ data class Masodperc(
     val naploDb: Int,
     val jelek: List<String>,
     var eses: Boolean = false,
-)
+) {
+    /** CPU% of the threads that normally keep a frame going (render + task workers). */
+    val dolgozoCpu: Int get() = (katCpu[SzalKategoria.RENDER] ?: 0) + (katCpu[SzalKategoria.MUNKA] ?: 0)
+}
 
 object Ok {
     const val SHADER = "shader"
@@ -38,11 +47,15 @@ object Ok {
     const val HATTERTAR = "hattertar"
     const val CPU = "cpu"
     const val GPU = "gpu"
+    const val VARAKOZAS = "varakozas"
     const val HO = "ho"
     const val MEMORIA = "memoria"
     const val ISMERETLEN = "ismeretlen"
 
-    val MIND = listOf(SHADER, BETOLTES, HATTERTAR, CPU, GPU, HO, MEMORIA)
+    /** Not a per-drop cause: CPU frequency limited for the whole session (power / game mode). */
+    const val ORAJEL_KORLAT = "orajelKorlat"
+
+    val MIND = listOf(SHADER, BETOLTES, HATTERTAR, CPU, GPU, VARAKOZAS, HO, MEMORIA)
 
     fun cimke(ok: String): String = when (ok) {
         SHADER -> "Shaderfordítás"
@@ -50,8 +63,10 @@ object Ok {
         HATTERTAR -> "Lassú fájlolvasás"
         CPU -> "CPU-kötött (egy szál a szűk keresztmetszet)"
         GPU -> "GPU-kötött"
+        VARAKOZAS -> "A játék vár (GPU vagy szinkron, becsült)"
         HO -> "Melegedés miatti lassítás"
         MEMORIA -> "Kevés szabad memória"
+        ORAJEL_KORLAT -> "Korlátozott CPU-órajel"
         else -> "Nem egyértelmű"
     }
 }
@@ -110,6 +125,15 @@ data class Elemzes(
     /** share of busy threads that have a real (non-generic) name, 0..1, null without threads */
     val szalnevArany: Double?,
     val okEloszlas: Map<String, Int>,
+    /** seconds before the first rendered frame (initial loading), not analysed for drops */
+    val kezdoBetoltesMp: Int = 0,
+    /** typical (90th percentile) CPU frequency ceiling of the fastest cluster vs its hardware max, 0..1 */
+    val orajelPlafon: Double? = null,
+    /** per cluster: typical ceiling MHz to hardware max MHz */
+    val klaszterPlafon: List<Pair<Int, Int>> = emptyList(),
+    /** game folder location type from meta (belso / appSajatKulso / megosztott / sdKartya) */
+    val jatekHely: String? = null,
+    val jatekMappa: String? = null,
 )
 
 /**
@@ -127,26 +151,51 @@ object Rendszerezo {
     const val TELITETT_SZAL = 85
     const val GPU_SZABAD = 75
     const val GPU_TELITETT = 90
-    const val FREK_PLAFON = 0.75
+    const val FREK_KORLAT = 0.9
+    const val HO_CSOKKENES = 0.9
     const val MEM_KEVES_MB = 600
     const val OLVASAS_SOK_MBS = 40.0
+    const val VARAKOZAS_ARANY = 0.6
+
+    private class Kontextus(
+        val orajelAlap: Double?,
+        val normalOlvasas: Double,
+        val normalLaphiba: Double,
+        val normalDolgozo: Double,
+        val gpuOlvashato: Boolean,
+    )
 
     fun elemez(m: Munkamenet): Elemzes {
         val idovonal = idovonal(m)
-        val fpsErtekek = idovonal.mapNotNull { it.fps }.filter { it > 0.0 }
+        // Initial loading (before the first frame) and the tail after the game closed are not drops.
+        val elso = idovonal.indexOfFirst { (it.fps ?: 0.0) > 0.0 }
+        val utolso = idovonal.indexOfLast { (it.fps ?: 0.0) > 0.0 }
+        val tartomany = if (elso >= 0) idovonal.subList(elso, utolso + 1) else emptyList()
+
+        val fpsErtekek = tartomany.mapNotNull { it.fps }.filter { it > 0.0 }
         val medianFps = median(fpsErtekek)
         val osszesFt = m.kepkockak.flatMap { it.ms }
         val medianFt = median(osszesFt)
         val ftKorlat = medianFt?.let { max(ESES_FT_MIN_MS, ESES_FT_SZORZO * it) } ?: ESES_FT_MIN_MS
 
-        for (s in idovonal) {
+        for (s in tartomany) {
             val fpsEses = s.fps != null && medianFps != null && (s.fps == 0.0 || s.fps < ESES_FPS_ARANY * medianFps)
             val ftEses = s.ftMax != null && s.ftMax > ftKorlat
             s.eses = fpsEses || ftEses
         }
 
-        val hwMax = klaszterMaxMhz(m)
-        val esesek = csoportosit(idovonal).map { ablak -> esesElemzes(ablak, medianFps, hwMax) }
+        val nyugodt = tartomany.filter { !it.eses }
+        val orajelAlap = percentilis(tartomany.mapNotNull { it.frekArany }, 0.9)
+        val gpuOlvashato = idovonal.any { it.gpu != null }
+        val kontextus = Kontextus(
+            orajelAlap = orajelAlap,
+            normalOlvasas = median(nyugodt.map { it.olvasasMBs }) ?: 0.0,
+            normalLaphiba = median(nyugodt.map { it.laphiba.toDouble() }) ?: 0.0,
+            normalDolgozo = median(nyugodt.map { it.dolgozoCpu.toDouble() }) ?: 0.0,
+            gpuOlvashato = gpuOlvashato,
+        )
+
+        val esesek = csoportosit(tartomany).map { ablak -> esesElemzes(ablak, kontextus) }
         val okEloszlas = HashMap<String, Int>()
         esesek.forEach { okEloszlas[it.fooOk] = (okEloszlas[it.fooOk] ?: 0) + it.hossz }
         val esesIdo = esesek.sumOf { it.hossz }
@@ -173,11 +222,8 @@ object Rendszerezo {
         }
 
         val atlagFps = if (fpsErtekek.isEmpty()) null else fpsErtekek.average()
-        val egySzazalek = if (osszesFt.size >= 100) {
-            percentilis(osszesFt, 0.99)?.let { 1000.0 / it }
-        } else {
-            null
-        }
+        val egySzazalek = if (osszesFt.size >= 100) percentilis(osszesFt, 0.99)?.let { 1000.0 / it } else null
+        val kontener = m.meta.optJSONObject("kontener")
 
         val elemzes = Elemzes(
             idovonal = idovonal,
@@ -191,11 +237,16 @@ object Rendszerezo {
             esesIdoMp = esesIdo,
             kategoriaAtlag = katOsszeg.mapValues { it.value / mintaDb },
             topSzalak = topSzalak,
-            gpuOlvashato = idovonal.any { it.gpu != null },
+            gpuOlvashato = gpuOlvashato,
             frekOlvashato = idovonal.any { it.frekArany != null },
             homOlvashato = idovonal.any { it.homCpu != null },
             szalnevArany = szalnevArany,
             okEloszlas = okEloszlas,
+            kezdoBetoltesMp = if (elso > 0) idovonal[elso].t - idovonal.first().t else 0,
+            orajelPlafon = orajelAlap,
+            klaszterPlafon = klaszterPlafon(m),
+            jatekHely = kontener?.optString("jatekMappaTipus")?.takeIf { it.isNotBlank() },
+            jatekMappa = kontener?.optString("jatekMappa")?.takeIf { it.isNotBlank() },
         )
         return elemzes.copy(javaslatok = javaslatok(elemzes))
     }
@@ -231,6 +282,9 @@ object Rendszerezo {
                 katCpu = katCpu,
                 olvasasMBs = minta.folyamatok.sumOf { it.olvasas } / MB,
                 rcharMBs = minta.folyamatok.sumOf { it.rchar } / MB,
+                laphiba = minta.folyamatok.sumOf { it.mf },
+                blkio = minta.folyamatok.maxOfOrNull { it.blk } ?: 0,
+                dSzalak = minta.szalak.filter { it.allapot == "D" }.map { it.nev },
                 frekArany = frekArany(minta, hwMax),
                 memSzabadMb = minta.memSzabadMb,
                 homCpu = minta.homCpu,
@@ -258,18 +312,18 @@ object Rendszerezo {
         return csoportok
     }
 
-    private fun esesElemzes(ablak: List<Masodperc>, medianFps: Double?, hwMax: List<Int>): Eses {
+    private fun esesElemzes(ablak: List<Masodperc>, k: Kontextus): Eses {
         val pontok = HashMap<String, Double>()
         val bizonyitek = ArrayList<String>()
         fun add(ok: String, ertek: Double) {
             pontok[ok] = ((pontok[ok] ?: 0.0) + ertek).coerceIn(0.0, 1.0)
         }
 
-        // Shader: log lines + shader compiler threads
+        // Shader: log lines (DXVK / vkd3d-proton pipeline creation) + shader compiler threads
         val shaderSorok = ablak.sumOf { it.shaderNaplo }
         if (shaderSorok > 0) {
             add(Ok.SHADER, min(0.5, 0.2 + 0.05 * shaderSorok))
-            bizonyitek += "Shaderre utaló naplósorok: $shaderSorok"
+            bizonyitek += "Shaderre / PSO-ra utaló naplósorok: $shaderSorok"
         }
         val shaderCpu = ablak.maxOf { it.katCpu[SzalKategoria.SHADER] ?: 0 }
         if (shaderCpu >= 10) {
@@ -284,13 +338,28 @@ object Rendszerezo {
             bizonyitek += "Betöltő szálak terhelése: $betoltesCpu%"
         }
 
-        // Storage reads
+        // Storage: reads well above the calm-second baseline, page faults, threads blocked on I/O
         val olvasas = ablak.maxOf { it.olvasasMBs }
-        val iowait = ablak.mapNotNull { it.iowait }.maxOrNull() ?: 0
-        if (olvasas >= 5.0) {
+        if (olvasas >= max(5.0, 4 * k.normalOlvasas)) {
             add(Ok.HATTERTAR, min(1.0, olvasas / OLVASAS_SOK_MBS) * 0.7)
-            bizonyitek += "Fájlolvasás a tárhelyről: ${egyTized(olvasas)} MB/s"
+            bizonyitek += "Fájlolvasás a tárhelyről: ${egyTized(olvasas)} MB/s (nyugodt részeken ${egyTized(k.normalOlvasas)})"
         }
+        val laphiba = ablak.maxOf { it.laphiba }
+        if (laphiba >= max(50.0, 4 * k.normalLaphiba)) {
+            add(Ok.HATTERTAR, 0.2)
+            bizonyitek += "Tárhelyről betöltött memórialapok: $laphiba/s"
+        }
+        val dSzalak = ablak.flatMap { it.dSzalak }
+        if (dSzalak.isNotEmpty()) {
+            add(Ok.HATTERTAR, min(0.3, 0.1 * dSzalak.size))
+            bizonyitek += "Tárhelyre váró szálak: ${dSzalak.groupingBy { it }.eachCount().entries.joinToString { "${it.key}×${it.value}" }}"
+        }
+        val blkio = ablak.maxOf { it.blkio }
+        if (blkio >= 10) {
+            add(Ok.HATTERTAR, min(0.4, blkio / 100.0))
+            bizonyitek += "I/O-várakozás a játékban: $blkio%"
+        }
+        val iowait = ablak.mapNotNull { it.iowait }.maxOrNull() ?: 0
         if (iowait >= 10) {
             add(Ok.HATTERTAR, 0.2)
             bizonyitek += "I/O-várakozás: $iowait%"
@@ -316,23 +385,33 @@ object Rendszerezo {
             bizonyitek += "Telített szál: ${top.nev} (${SzalKategoria.cimke(top.kategoria)}) ${top.cpu}%$gpuSzoveg"
         }
 
-        // GPU saturated
+        // GPU saturated (only when readable)
         val gpuTelitett = ablak.count { (it.gpu ?: 0) >= GPU_TELITETT }
         if (gpuTelitett > 0) {
             add(Ok.GPU, 0.6 + 0.4 * gpuTelitett / ablak.size)
             bizonyitek += "GPU-terhelés: ${ablak.mapNotNull { it.gpu }.maxOrNull()}%"
         }
 
-        // Thermal: CPU frequency ceiling lowered
+        // Threads that normally keep frames going are idle: the game waits on something.
+        val dolgozo = ablak.map { it.dolgozoCpu }.average()
+        if (k.normalDolgozo >= 20 && dolgozo < VARAKOZAS_ARANY * k.normalDolgozo) {
+            bizonyitek += "A renderelő- és munkaszálak a szokásosnál kevesebbet dolgoznak " +
+                "(${k.normalDolgozo.roundToInt()}% → ${dolgozo.roundToInt()}%): a játék vár valamire"
+            if (!k.gpuOlvashato && telitettMp.isEmpty()) add(Ok.VARAKOZAS, 0.45)
+        }
+
+        // Thermal: the frequency ceiling dropped below the session's usual ceiling
         val arany = ablak.mapNotNull { it.frekArany }.minOrNull()
-        if (arany != null && arany < FREK_PLAFON) {
-            add(Ok.HO, 0.5 + (FREK_PLAFON - arany))
-            bizonyitek += "CPU-órajel plafonja: a maximum ${(arany * 100).roundToInt()}%-a"
+        val alap = k.orajelAlap
+        if (arany != null && alap != null && arany < HO_CSOKKENES * alap) {
+            add(Ok.HO, 0.5 + (HO_CSOKKENES * alap - arany) * 2)
+            val hom = ablak.mapNotNull { it.homCpu }.maxOrNull()?.let { ", CPU $it °C" } ?: ""
+            bizonyitek += "CPU-órajel plafonja a szokásos ${(alap * 100).roundToInt()}%-ról ${(arany * 100).roundToInt()}%-ra csökkent$hom"
         }
         val hoAllapot = ablak.mapNotNull { it.hoAllapot }.maxOrNull()
-        if (hoAllapot != null && hoAllapot >= 3) {
-            add(Ok.HO, 0.2)
-            bizonyitek += "Android hőállapot: $hoAllapot (súlyos)"
+        if (hoAllapot != null && hoAllapot >= 2) {
+            add(Ok.HO, if (hoAllapot >= 3) 0.4 else 0.25)
+            bizonyitek += "Android hőállapot: $hoAllapot"
         }
 
         // Memory
@@ -369,12 +448,31 @@ object Rendszerezo {
             val (cim, szoveg) = javaslatSzoveg(ok, e)
             eredmeny += Javaslat(szint, ok, cim, szoveg, arany)
         }
+        val plafon = e.orajelPlafon
+        if (plafon != null && plafon < FREK_KORLAT) {
+            val cpuKotott = (e.okEloszlas[Ok.CPU] ?: 0) > 0 ||
+                e.idovonal.count { (it.topSzal?.cpu ?: 0) >= TELITETT_SZAL } >= 3
+            val klaszterek = e.klaszterPlafon.filter { it.second > 0 }
+                .joinToString(", ") { "${it.first}/${it.second} MHz" }
+            eredmeny += Javaslat(
+                if (cpuKotott || plafon < 0.8) Szint.MAGAS else Szint.KOZEPES,
+                Ok.ORAJEL_KORLAT,
+                "A processzor végig korlátozott órajelen fut",
+                "A rendszer már a mérés elejétől (hűvös telefonnal is) visszafogja a CPU-t: a leggyorsabb mag a maximumának " +
+                    "csak kb. ${(plafon * 100).roundToInt()}%-áig mehet" + (if (klaszterek.isNotEmpty()) " (klaszterenként: $klaszterek)" else "") +
+                    ". Ez nem melegedés, hanem a HyperOS energia-/játékmódja. Teendő: Beállítások → Akkumulátor alatt kapcsold " +
+                    "„Teljesítmény” módra, és a Biztonság app Game Turbo (Játék turbó) részében add hozzá a GameNative Figyelőt, " +
+                    "ott is a teljesítmény módot válaszd. Utána mérj újra: a jelentés megmutatja, feloldódott-e a korlát.",
+                0.0,
+            )
+        }
         if (!e.gpuOlvashato) {
             eredmeny += Javaslat(
                 Szint.ALACSONY,
                 Ok.GPU,
                 "A GPU-terhelés nem olvasható",
-                "Ezen a telefonon az app nem fér hozzá a GPU-adatokhoz, ezért a GPU-kötöttséget nem tudjuk kimutatni.",
+                "Ezen a telefonon a rendszer nem engedi kiolvasni a GPU-adatokat, ezért a GPU-kötöttséget csak becsülni tudjuk " +
+                    "(„A játék vár” ok). Biztos próba: állíts kisebb felbontást (pl. 960×540) – ha az esések eltűnnek, a GPU a szűk keresztmetszet.",
                 0.0,
             )
         }
@@ -395,32 +493,53 @@ object Rendszerezo {
         val topNev = e.topSzalak.firstOrNull()?.nev
         return when (ok) {
             Ok.SHADER -> "Menet közbeni shaderfordítás" to
-                "Az esések alatt a játék új shadereket fordít. Ez első alkalommal mindig lassú, utána a gyorsítótárból jön. " +
-                "Teendő: 1) nézd meg ugyanazt a menüt többször egymás után – ha másodszorra kisebb az esés, ez a shader cache; " +
-                "2) a konténer beállításaiban próbálj ki újabb grafikus drivert (Turnip / Adreno); " +
-                "3) ha a DX-wrapper listában van „async” vagy „gplasync” DXVK, próbáld ki."
+                "Az esések alatt a játék új shadereket / pipeline-okat (PSO) fordít. Ez első alkalommal mindig lassú, utána a " +
+                "gyorsítótárból jön. Teendő: 1) nézd meg ugyanazt a menüt többször egymás után – ha másodszorra kisebb az esés, " +
+                "ez a shader cache; 2) a konténer beállításaiban próbálj ki újabb grafikus drivert (Turnip / Adreno)."
             Ok.BETOLTES -> "Betöltés a CPU-n" to
                 "Az esések alatt a játék betöltő szálai dolgoznak, a processzoron tömörítik ki az adatokat. " +
                 "Teendő: 1) próbálj gyorsabb Box64 / FEX presetet, vagy válts a másik fordítóra, és hasonlítsd össze; " +
                 "2) ellenőrizd, hogy a konténer minden CPU-magot használhat. A 2. fázis megmutatja, melyik kódrész viszi az időt."
-            Ok.HATTERTAR -> "Lassú fájlolvasás" to
-                "Az esések alatt a játék sokat olvas a tárhelyről. Teendő: a játék fájljai a belső tárhelyen legyenek " +
-                "(ne SD-kártyán), és legyen bőven szabad hely a telefonon."
+            Ok.HATTERTAR -> "Lassú fájlolvasás" to hattertarSzoveg(e)
             Ok.CPU -> "Egy processzorszál a szűk keresztmetszet" to
-                "Egy szál végig dolgozik${topNev?.let { " (leggyakrabban: $it)" } ?: ""}, a GPU közben ráérne. " +
-                "Ilyenkor a CPU-fordító (Box64 / FEX) beállításai számítanak a legtöbbet: próbálj gyorsabb presetet. " +
-                "A 2. fázis megmutatja, melyik kódrész viszi az időt."
+                "Egy szál végig dolgozik${topNev?.let { " (leggyakrabban: $it)" } ?: ""}, a többi vár rá. " +
+                "Ilyenkor a CPU órajele és a fordító (Box64 / FEX) beállításai számítanak a legtöbbet: oldd fel az órajel-korlátot " +
+                "(ha van), és próbálj gyorsabb presetet. A 2. fázis megmutatja, melyik kódrész viszi az időt."
             Ok.GPU -> "A videókártya (GPU) a szűk keresztmetszet" to
                 "A GPU teljesen ki van használva. Teendő: kisebb felbontás vagy alacsonyabb grafikai beállítás a játékban, " +
                 "FPS-limit, vagy másik grafikus driver."
+            Ok.VARAKOZAS -> "A játék vár (valószínűleg a GPU-ra)" to
+                "Az esések alatt a renderelő szálak a szokásosnál kevesebbet dolgoznak, fájlolvasás nincs, a GPU-t pedig nem tudjuk " +
+                "kiolvasni. A legvalószínűbb, hogy a GPU nem bírja a jelenetet. Próba: állíts kisebb felbontást vagy grafikát, " +
+                "és mérj újra – ha ezek az esések eltűnnek, a GPU volt a szűk keresztmetszet."
             Ok.HO -> "Melegedés miatti lassítás" to
-                "A telefon a hő miatt visszavette a processzor órajelét. Teendő: alacsonyabb FPS-limit (pl. 30), " +
+                "A mérés közben a telefon a hő miatt tovább csökkentette a processzor órajelét. Teendő: alacsonyabb FPS-limit, " +
                 "tok levétele, hűtő használata."
             Ok.MEMORIA -> "Kevés szabad memória" to
                 "Az esések alatt alig volt szabad memória. Teendő: zárd be a többi appot a játék indítása előtt."
             else -> "Nem egyértelmű ok" to
                 "Ezeknél az eséseknél a mért adatokból nem rajzolódik ki egy fő ok. Teendő: a „Jelölés” gombbal jelöld meg, " +
                 "mikor lép be a menübe, és vegyél fel még egy mérést."
+        }
+    }
+
+    private fun hattertarSzoveg(e: Elemzes): String {
+        val alap = "Az esések alatt a játék a szokásosnál jóval többet olvas a tárhelyről, és közben a szálai várnak. "
+        return when (e.jatekHely) {
+            "megosztott" ->
+                alap + "A játék a telefon megosztott tárhelyén van (${e.jatekMappa ?: "pl. Letöltések"}). Ezt a részt az Android egy " +
+                    "lassabb közvetítő rétegen (FUSE) keresztül olvassa, ami a sok apró olvasásnál akadást okoz. Teendő: tedd a játékot " +
+                    "az app saját mappájába (Android/data/app.gamenative.figyelo/files/…) vagy töltsd le az appon belül a Steamről – " +
+                    "ezek a helyek kikerülik ezt a réteget."
+            "sdKartya" ->
+                alap + "A játék SD-kártyán van, ami lassabb a belső tárhelynél. Teendő: kapcsold be a konténerben a " +
+                    "„Faster loading from external storage” beállítást, vagy tedd a játékot a belső tárhelyre."
+            "belso", "appSajatKulso" ->
+                alap + "A játék már gyors helyen van, ezért itt inkább a sok kis olvasás és a kevés szabad memória (gyorsítótár) a gond. " +
+                    "Teendő: zárd be a többi appot a játék előtt, hogy több memória maradjon a fájlok gyorsítótárára."
+            else ->
+                alap + "Teendő: a játék fájljai a belső tárhelyen legyenek (ne SD-kártyán), és legyen bőven szabad hely. " +
+                    "(A játék mappáját az app a következő méréstől rögzíti, abból pontosabb tanács adható.)"
         }
     }
 
@@ -441,7 +560,16 @@ object Rendszerezo {
         return (0 until klaszterek.length()).map { klaszterek.optJSONObject(it)?.optInt("maxMhz", -1) ?: -1 }
     }
 
-    private val generikusSzalnevek = setOf("wine64-preload", "wine-preloader", "wine64", "wine", "box64", "fex", "main", "")
+    /** Typical (90th percentile) scaling_max_freq per cluster vs the cluster's hardware max. */
+    private fun klaszterPlafon(m: Munkamenet): List<Pair<Int, Int>> {
+        val hw = klaszterMaxMhz(m)
+        return hw.indices.map { i ->
+            val ertekek = m.mintak.mapNotNull { it.frekMax.getOrNull(i)?.takeIf { v -> v > 0 }?.toDouble() }
+            (percentilis(ertekek, 0.9)?.roundToInt() ?: -1) to hw[i]
+        }
+    }
+
+    private val generikusSzalnevek = setOf("wine64-preload", "wine-preloader", "wine64", "wine", "box64", "fex", "main", "linker64", "")
 
     private fun generikusSzalnev(nev: String, folyamatNevek: Set<String>): Boolean {
         val n = nev.lowercase()

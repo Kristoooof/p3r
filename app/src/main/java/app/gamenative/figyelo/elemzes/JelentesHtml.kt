@@ -77,7 +77,12 @@ ul{margin:4px 0 0 18px;padding:0}
             kpi(e.egySzazalekLowFps?.let { it.roundToInt().toString() } ?: "–", "1% low FPS")
             kpi(e.esesek.size.toString(), "esés")
             kpi(idoSzoveg(e.esesIdoMp), "esésben töltött idő")
+            e.orajelPlafon?.let { kpi("${(it * 100).roundToInt()}%", "CPU-órajel plafon (a max.-hoz)") }
             append("</div>")
+            if (e.kezdoBetoltesMp > 0) {
+                append("<p class=\"muted small\">Az első ").append(idoSzoveg(e.kezdoBetoltesMp))
+                    .append(" kezdő betöltés volt (még nem jelent meg kép), ezt az esések nem tartalmazzák.</p>")
+            }
 
             append("<h2>Idővonal</h2><div class=\"card\">")
             append(
@@ -144,6 +149,10 @@ ul{margin:4px 0 0 18px;padding:0}
             forras("GPU-terhelés", e.gpuOlvashato, meta.optJSONObject("olvashato")?.optString("gpuForras"))
             forras("CPU-órajelek", e.frekOlvashato, null)
             forras("Hőmérséklet", e.homOlvashato, null)
+            e.jatekMappa?.let {
+                append("<li>A játék mappája: ").append(esc(it)).append(" <span class=\"muted\">(")
+                    .append(esc(helyCimke(e.jatekHely))).append(")</span></li>")
+            }
             append("<li>Szálnevek: ")
             append(
                 when {
@@ -202,6 +211,14 @@ ul{margin:4px 0 0 18px;padding:0}
         if (driver.isNotBlank()) reszek += driver
         k.optString("dxwrapper").takeIf { it.isNotBlank() }?.let { reszek += it }
         return reszek.joinToString(" · ")
+    }
+
+    private fun helyCimke(hely: String?): String = when (hely) {
+        "belso" -> "az app belső tárhelye"
+        "appSajatKulso" -> "az app saját mappája"
+        "megosztott" -> "megosztott tárhely, FUSE-on keresztül"
+        "sdKartya" -> "SD-kártya"
+        else -> "ismeretlen"
     }
 
     private fun perc(mp: Int): String = "%d:%02d".format(mp / 60, mp % 60)
