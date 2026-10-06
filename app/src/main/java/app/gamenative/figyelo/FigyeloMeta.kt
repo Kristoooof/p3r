@@ -17,6 +17,9 @@ import java.util.Locale
 /** Builds meta.json: device, SoC, Android version and the game container's settings. */
 internal object FigyeloMeta {
 
+    /** Bumped with every Figyelő change that alters what is recorded, so reports show which build measured. */
+    const val FIGYELO_VERZIO = 5
+
     fun jatekNev(container: Container?): String {
         if (container == null) return "Ismeretlen játék"
         val nev = runCatching { ContainerUtils.resolveGameName(container.id) }.getOrNull()
@@ -30,6 +33,7 @@ internal object FigyeloMeta {
         put("formatum", 1)
         put("alkalmazas", "GameNative Figyelő")
         put("verzio", BuildConfig.VERSION_NAME)
+        put("figyeloVerzio", FIGYELO_VERZIO)
         put("csomag", BuildConfig.APPLICATION_ID)
         put("kezdes", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(kezdesMs)))
         put("kezdesMs", kezdesMs)

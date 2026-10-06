@@ -346,16 +346,34 @@ internal class Mintavevo(private val context: Context) {
     /** System memory breakdown (MB) + memory / IO pressure (PSI) when the kernel lets us read it. */
     private fun memoria(): JSONObject {
         val kulcsok = mapOf(
-            "MemAvailable:" to "elerheto", "Cached:" to "gyorsitotar", "AnonPages:" to "anon", "Mapped:" to "lekepezett",
-            "Shmem:" to "shmem", "SwapTotal:" to "swapOssz", "SwapFree:" to "swapSzabad", "KReclaimable:" to "kernelVisszaveheto",
+            "MemTotal:" to "ossz", "MemFree:" to "szabad", "MemAvailable:" to "elerheto", "Buffers:" to "pufferek",
+            "Cached:" to "gyorsitotar", "SwapCached:" to "swapGyorsitotar", "AnonPages:" to "anon", "Mapped:" to "lekepezett",
+            "Shmem:" to "shmem", "Slab:" to "slab", "KernelStack:" to "kernelVerem", "PageTables:" to "laptablak",
+            "VmallocUsed:" to "vmalloc", "Unevictable:" to "nemKiszorithato", "SwapTotal:" to "swapOssz",
+            "SwapFree:" to "swapSzabad", "KReclaimable:" to "kernelVisszaveheto", "ION_heap:" to "ion", "GPUTotalUsed:" to "gpuOssz",
         )
         val o = JSONObject()
+        val ertekek = HashMap<String, Long>()
         File("/proc/meminfo").bufferedReader().useLines { lines ->
             for (line in lines) {
                 val k = kulcsok.entries.firstOrNull { line.startsWith(it.key) } ?: continue
-                line.substringAfter(':').trim().substringBefore(' ').toLongOrNull()?.let { o.put(k.value, it / 1024L) }
+                line.substringAfter(':').trim().substringBefore(' ').toLongOrNull()?.let {
+                    ertekek[k.value] = it / 1024L
+                    o.put(k.value, it / 1024L)
+                }
             }
         }
+        // Memory the kernel lists nowhere above: mostly GPU / driver allocations (kgsl, dmabuf), which can't be swapped.
+        val ossz = ertekek["ossz"]
+        if (ossz != null) {
+            val ismert = listOf("szabad", "pufferek", "gyorsitotar", "swapGyorsitotar", "anon", "slab", "kernelVerem", "laptablak")
+                .sumOf { ertekek[it] ?: 0L }
+            o.put("nemKovetett", (ossz - ismert).coerceAtLeast(0L))
+        }
+        // the GameNative app process itself (X server, renderer, UI) is excluded from the process list
+        runCatching { File("/proc/self/statm").readText().trim().split(' ').getOrNull(1)?.toLongOrNull() }.getOrNull()
+            ?.let { o.put("appRss", it * lapMeret / (1024L * 1024L)) }
+        statusKb(selfPid, "VmSwap:")?.let { o.put("appSwap", it / 1024L) }
         for ((fajl, nev) in listOf("/proc/pressure/memory" to "psiMem", "/proc/pressure/io" to "psiIo")) {
             // "some avg10=1.23 …": % of the last 10 s some task stalled on memory / IO
             runCatching { File(fajl).readLines().firstOrNull { it.startsWith("some") } }.getOrNull()

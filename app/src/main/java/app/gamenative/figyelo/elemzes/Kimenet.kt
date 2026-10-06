@@ -63,6 +63,7 @@ object Kimenet {
     fun osszegzes(m: Munkamenet, e: Elemzes): JSONObject = JSONObject().apply {
         put("formatum", 1)
         put("jatek", m.meta.optString("jatek"))
+        put("figyeloVerzio", m.meta.optInt("figyeloVerzio", 0))
         put("kezdes", m.meta.optString("kezdes"))
         m.meta.optJSONObject("eszkoz")?.let { put("eszkoz", it) }
         m.meta.optJSONObject("kontener")?.let { put("kontener", it) }
@@ -90,6 +91,7 @@ object Kimenet {
                 putOpt("maxJatekSwapMb", e.maxJatekSwapMb)
                 put("memoriaElvetelDb", e.memoriaElvetelDb)
                 putOpt("maxEszkozMemoria", e.maxEszkozMemoria)
+                put("memoriaMegoszlasMb", JSONObject(e.memoriaMegoszlas.toMap()))
             },
         )
         put(

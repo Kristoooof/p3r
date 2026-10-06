@@ -100,4 +100,21 @@ class RendszerezoTest {
         assertTrue(e.esesek.none { it.kezdet in 79..85 })
         assertEquals(5, e.szunetMp)
     }
+
+    @Test
+    fun memoriaMegoszlas() {
+        val mappa = File(tmp.root, "memoria"); keszit(mappa)
+        val sorok = File(mappa, Fajlok.MINTA).readLines().filter { it.startsWith("{\"") }.map {
+            JSONObject(it).put(
+                "memoria",
+                JSONObject().put("ossz", 11000).put("elerheto", 1200).put("nemKovetett", 4300)
+                    .put("swapOssz", 8000).put("swapSzabad", 5000),
+            )
+        }
+        File(mappa, Fajlok.MINTA).writeText(sorok.joinToString("\n") { it.toString() } + "\n")
+        val e = Kimenet.feldolgoz(mappa)
+        assertEquals(4300, e.memoriaMegoszlas["nemKovetett"])
+        assertEquals(3000, e.memoriaMegoszlas["swapHasznalt"])
+        assertTrue(File(mappa, Fajlok.JELENTES).readText().contains("Memória megoszlása"))
+    }
 }

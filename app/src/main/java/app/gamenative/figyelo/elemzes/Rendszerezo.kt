@@ -1,5 +1,6 @@
 package app.gamenative.figyelo.elemzes
 
+import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -163,6 +164,8 @@ data class Elemzes(
     val memoriaElvetelDb: Int = 0,
     /** Max Device Memory (WRAPPER_VMEM_MAX_SIZE) from the container, MB; 0 = unlimited */
     val maxEszkozMemoria: Int? = null,
+    /** session medians of the memory breakdown in MB (keys as in the `memoria` sample field, plus swapHasznalt) */
+    val memoriaMegoszlas: Map<String, Int> = emptyMap(),
 )
 
 /**
@@ -291,6 +294,7 @@ object Rendszerezo {
             minJatekRssMb = jatekban.mapNotNull { it.jatekRssMb }.minOrNull(),
             maxJatekSwapMb = idovonal.mapNotNull { it.jatekSwapMb }.maxOrNull(),
             memoriaElvetelDb = jatekban.indices.count { i -> memoriaElvetel(jatekban, i) },
+            memoriaMegoszlas = memoriaMegoszlas(m),
             maxEszkozMemoria = kontener?.optString("driverBeallitas")?.let { Regex("maxDeviceMemory=(\\d+)").find(it) }
                 ?.groupValues?.get(1)?.toIntOrNull(),
         )
@@ -363,6 +367,17 @@ object Rendszerezo {
         "services.exe", "explorer.exe", "winedevice.exe", "svchost.exe", "plugplay.exe", "rpcss.exe",
         "start.exe", "winhandler.exe", "tabtip.exe", "conhost.exe",
     )
+
+    private fun memoriaMegoszlas(m: Munkamenet): Map<String, Int> {
+        val mintak = m.mintak.filter { it.memoria.isNotEmpty() && !it.szunet }
+        if (mintak.isEmpty()) return emptyMap()
+        val kulcsok = mintak.flatMap { it.memoria.keys }.toSet() - setOf("psiMem", "psiIo")
+        val eredmeny = LinkedHashMap<String, Int>()
+        for (k in kulcsok) median(mintak.mapNotNull { it.memoria[k] })?.let { eredmeny[k] = it.roundToInt() }
+        median(mintak.mapNotNull { mi -> mi.memoria["swapOssz"]?.let { o -> mi.memoria["swapSzabad"]?.let { o - it } } })
+            ?.let { eredmeny["swapHasznalt"] = it.roundToInt() }
+        return eredmeny
+    }
 
     private fun memoriaElvetel(sorok: List<Masodperc>, i: Int): Boolean {
         val most = sorok[i].jatekRssMb ?: return false
@@ -668,9 +683,17 @@ object Rendszerezo {
             korlat > 2048 -> "A „Max Device Memory” most $korlat MB – próbáld 2048 MB-tal."
             else -> "A „Max Device Memory” már $korlat MB; a játékban vedd lejjebb a textúra- és árnyékminőséget."
         }
+        val gpu = e.memoriaMegoszlas["nemKovetett"]
+        val gpuSzoveg = if (gpu != null && gpu >= 2500) {
+            " A memóriából kb. ${"%.1f".format(Locale.US, gpu / 1024.0)} GB-ot a GPU és a driver foglal " +
+                "(ezt az Android nem tudja kiszorítani), ezért a játéktól és a fájlok gyorsítótárától veszi el. A leghatásosabb a játékon belül " +
+                "csökkenteni a textúra- és árnyékminőséget, mert az közvetlenül ezt a memóriát csökkenti."
+        } else {
+            ""
+        }
         return "A telefonon kevés a szabad memória, ezért az Android a futó játéktól is elvesz" +
             (e.minJatekRssMb?.let { min -> e.maxJatekRssMb?.let { max -> " (a játék memóriája $max és $min MB között ingadozott)" } } ?: "") +
-            ", és amit utána újra használna, azt lassan kapja vissza. Teendő: $korlatSzoveg Zárd be a többi appot a játék előtt."
+            ", és amit utána újra használna, azt lassan kapja vissza." + gpuSzoveg + " Teendő: $korlatSzoveg Zárd be a többi appot a játék előtt."
     }
 
     private fun hattertarSzoveg(e: Elemzes): String {

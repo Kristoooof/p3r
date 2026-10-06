@@ -109,6 +109,9 @@ Eredeti terv:
   adat gyorsan kiszorul (907 MB be / 1109 MB ki 8 perc alatt), a játék RSS-e 1021 → 335 MB-ig zsugorodik → **memóriahiány**,
   nem lassú tárhely. Gyanú: a korlátlan „Max Device Memory” (WRAPPER_VMEM_MAX_SIZE=0) miatt a játék nagy GPU-memóriát lát és
   sokat foglal. Következő kísérlet: Max Device Memory = 4096 MB.
+- 5. mérés (Max Device Memory = 4096): nem javult (medián 25, 1% low 5,2). A P3R RSS-e csak ~0,5 GB (PC-n 3–4 GB), a többi
+  valószínűleg zram-ban; a memóriát valami nem látott dolog foglalja (gyanú: GPU/driver, nem kiszorítható). A mérő v5 ezt
+  `nemKovetett` néven becsli (MemTotal − ismert tételek), és rögzíti a GameNative saját RSS-ét.
 - A 2. fázis (FEX profilozó) jelenleg alacsony hozamú: a telített fő szál az esésidő csak 1–15%-a.
 
 ## Nyitott kérdések

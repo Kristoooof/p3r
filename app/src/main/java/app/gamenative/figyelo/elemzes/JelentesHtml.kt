@@ -171,6 +171,27 @@ ul{margin:4px 0 0 18px;padding:0}
                 append("</p></div>")
             }
 
+            if (e.memoriaMegoszlas.isNotEmpty()) {
+                val mm = e.memoriaMegoszlas
+                append("<h2>Memória megoszlása</h2><div class=\"card tablewrap\"><table><tr><th>Mi</th><th>Medián</th></tr>")
+                listOf(
+                    "ossz" to "Teljes memória",
+                    "elerheto" to "Elérhető (szabad + kiszorítható)",
+                    "nemKovetett" to "GPU, driver és egyéb kernel (nem kiszorítható, becsült)",
+                    "anon" to "Programok adatai (összes app)",
+                    "gyorsitotar" to "Fájl-gyorsítótár",
+                    "swapHasznalt" to "Tömörített cserehelyen (zram)",
+                    "appRss" to "GameNative (X-szerver, felület)",
+                ).forEach { (k, cimke) ->
+                    mm[k]?.let { append("<tr><td>").append(esc(cimke)).append("</td><td>").append(it).append(" MB</td></tr>") }
+                }
+                e.minJatekRssMb?.let { min ->
+                    append("<tr><td>A játék (P3R) memóriája</td><td>").append(min).append("–").append(e.maxJatekRssMb ?: min).append(" MB</td></tr>")
+                }
+                e.maxJatekSwapMb?.let { append("<tr><td>A játékból cserehelyen (csúcs)</td><td>").append(it).append(" MB</td></tr>") }
+                append("</table></div>")
+            }
+
             append("<h2>Mérési adatforrások</h2><div class=\"card small\"><ul>")
             forras("GPU-terhelés", e.gpuOlvashato, meta.optJSONObject("olvashato")?.optString("gpuForras"))
             forras("CPU-órajelek", e.frekOlvashato, null)
@@ -190,6 +211,7 @@ ul{margin:4px 0 0 18px;padding:0}
             append("</li></ul></div>")
 
             append("<p class=\"muted small\">Készítette: GameNative Figyelő ").append(esc(meta.optString("verzio")))
+                .append(meta.optInt("figyeloVerzio", 0).takeIf { it > 0 }?.let { " (mérő v$it)" } ?: " (mérő v4 vagy régebbi)")
                 .append(". Nyers adatok: minta.jsonl, kepkockak.jsonl, naplo.jsonl, jelek.jsonl, meta.json; ")
                 .append("összegzés: osszegzes.json, idovonal.csv.</p>")
 
