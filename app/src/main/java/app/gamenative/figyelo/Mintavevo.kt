@@ -140,6 +140,7 @@ internal class Mintavevo(private val context: Context) {
 
         if (most - utolsoGyorsitotar >= GYORSITOTAR_MS && jatekPidek.isNotEmpty()) {
             utolsoGyorsitotar = most
+            biztos { memoria() }?.let { o.put("memoria", it) }
             biztos {
                 gyorsitotar.frissit(jatekPidek, most)
                 gyorsitotar.pillanatkep()
@@ -256,6 +257,10 @@ internal class Mintavevo(private val context: Context) {
                 runCatching {
                     File("/proc/$pid/statm").readText().trim().split(' ').getOrNull(1)?.toLongOrNull()
                 }.getOrNull()?.let { p.put("rssMb", it * lapMeret / (1024L * 1024L)) }
+                if (jatekFolyamat) {
+                    // swapped-out part of the game's memory (zram): touching it again stalls the game
+                    statusKb(pid, "VmSwap:")?.let { p.put("swapMb", it / 1024L) }
+                }
                 procs.put(p)
             }
             val taskok = File("/proc/$pid/task").listFiles() ?: continue
@@ -327,6 +332,40 @@ internal class Mintavevo(private val context: Context) {
             majflt = tobbi[9].toLongOrNull() ?: 0L,
             blkio = tobbi.getOrNull(39)?.toLongOrNull() ?: 0L,
         )
+    }
+
+    private fun statusKb(pid: Int, kulcs: String): Long? {
+        File("/proc/$pid/status").bufferedReader().useLines { lines ->
+            for (line in lines) {
+                if (line.startsWith(kulcs)) return line.substringAfter(':').trim().substringBefore(' ').toLongOrNull()
+            }
+        }
+        return null
+    }
+
+    /** System memory breakdown (MB) + memory / IO pressure (PSI) when the kernel lets us read it. */
+    private fun memoria(): JSONObject {
+        val kulcsok = mapOf(
+            "MemAvailable:" to "elerheto", "Cached:" to "gyorsitotar", "AnonPages:" to "anon", "Mapped:" to "lekepezett",
+            "Shmem:" to "shmem", "SwapTotal:" to "swapOssz", "SwapFree:" to "swapSzabad", "KReclaimable:" to "kernelVisszaveheto",
+        )
+        val o = JSONObject()
+        File("/proc/meminfo").bufferedReader().useLines { lines ->
+            for (line in lines) {
+                val k = kulcsok.entries.firstOrNull { line.startsWith(it.key) } ?: continue
+                line.substringAfter(':').trim().substringBefore(' ').toLongOrNull()?.let { o.put(k.value, it / 1024L) }
+            }
+        }
+        for ((fajl, nev) in listOf("/proc/pressure/memory" to "psiMem", "/proc/pressure/io" to "psiIo")) {
+            // "some avg10=1.23 …": % of the last 10 s some task stalled on memory / IO
+            runCatching { File(fajl).readLines().firstOrNull { it.startsWith("some") } }.getOrNull()
+                ?.substringAfter("avg10=")?.substringBefore(' ')?.toDoubleOrNull()?.let { o.put(nev, it) }
+        }
+        // GPU (kgsl) memory in use, if readable
+        listOf("/sys/class/kgsl/kgsl/page_alloc", "/sys/class/kgsl/kgsl/vmalloc").forEach { ut ->
+            SystemMetricsSources.readLongFromLine(ut)?.let { o.put(if (ut.endsWith("page_alloc")) "gpuLapMb" else "gpuVmallocMb", it / (1024L * 1024L)) }
+        }
+        return o
     }
 
     /** [read_bytes, rchar] from /proc/pid/io */

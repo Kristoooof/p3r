@@ -86,6 +86,10 @@ object Kimenet {
                 putOpt("jatekHely", e.jatekHely)
                 put("szunetMp", e.szunetMp)
                 putOpt("maxJatekRssMb", e.maxJatekRssMb)
+                putOpt("minJatekRssMb", e.minJatekRssMb)
+                putOpt("maxJatekSwapMb", e.maxJatekSwapMb)
+                put("memoriaElvetelDb", e.memoriaElvetelDb)
+                putOpt("maxEszkozMemoria", e.maxEszkozMemoria)
             },
         )
         put(

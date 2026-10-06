@@ -39,6 +39,10 @@ data class Masodperc(
     val szunet: Boolean = false,
     /** summed RSS of the game's .exe processes */
     val jatekRssMb: Int? = null,
+    /** swapped-out (zram) memory of the game's .exe processes */
+    val jatekSwapMb: Int? = null,
+    /** % of the last 10 s with tasks stalled on memory (PSI), if readable */
+    val psiMem: Double? = null,
     var eses: Boolean = false,
 ) {
     /** CPU% of the threads that normally keep a frame going (render + task workers). */
@@ -69,7 +73,7 @@ object Ok {
         GPU -> "GPU-kötött"
         VARAKOZAS -> "A játék vár (GPU vagy szinkron, becsült)"
         HO -> "Melegedés miatti lassítás"
-        MEMORIA -> "Kevés szabad memória"
+        MEMORIA -> "Memóriahiány (a rendszer elveszi a játék memóriáját)"
         ORAJEL_KORLAT -> "Korlátozott CPU-órajel"
         else -> "Nem egyértelmű"
     }
@@ -153,6 +157,12 @@ data class Elemzes(
     val szunetMp: Int = 0,
     val fajlok: List<FajlOsszegzes> = emptyList(),
     val maxJatekRssMb: Int? = null,
+    val minJatekRssMb: Int? = null,
+    val maxJatekSwapMb: Int? = null,
+    /** how often the game's memory was taken back by the system (RSS −150 MB within 5 s) */
+    val memoriaElvetelDb: Int = 0,
+    /** Max Device Memory (WRAPPER_VMEM_MAX_SIZE) from the container, MB; 0 = unlimited */
+    val maxEszkozMemoria: Int? = null,
 )
 
 /**
@@ -185,6 +195,7 @@ object Rendszerezo {
         val gpuOlvashato: Boolean,
         /** file name -> (t, resident MB) snapshots */
         val fajlIdovonal: Map<String, List<Pair<Double, Long>>>,
+        val idovonal: List<Masodperc>,
     )
 
     fun elemez(m: Munkamenet): Elemzes {
@@ -219,6 +230,7 @@ object Rendszerezo {
             normalDolgozo = median(nyugodt.map { it.dolgozoCpu.toDouble() }) ?: 0.0,
             gpuOlvashato = gpuOlvashato,
             fajlIdovonal = fajlIdovonal,
+            idovonal = jatekban,
         )
 
         val esesek = csoportosit(tartomany).map { ablak -> esesElemzes(ablak, kontextus) }
@@ -276,6 +288,11 @@ object Rendszerezo {
             szunetMp = tartomany.count { it.szunet },
             fajlok = fajlOsszegzes(fajlIdovonal, m),
             maxJatekRssMb = idovonal.mapNotNull { it.jatekRssMb }.maxOrNull(),
+            minJatekRssMb = jatekban.mapNotNull { it.jatekRssMb }.minOrNull(),
+            maxJatekSwapMb = idovonal.mapNotNull { it.jatekSwapMb }.maxOrNull(),
+            memoriaElvetelDb = jatekban.indices.count { i -> memoriaElvetel(jatekban, i) },
+            maxEszkozMemoria = kontener?.optString("driverBeallitas")?.let { Regex("maxDeviceMemory=(\\d+)").find(it) }
+                ?.groupValues?.get(1)?.toIntOrNull(),
         )
         return elemzes.copy(javaslatok = javaslatok(elemzes))
     }
@@ -324,6 +341,9 @@ object Rendszerezo {
                 szunet = minta.szunet || szunetBecsles(minta),
                 jatekRssMb = minta.folyamatok.filter { it.nev.endsWith(".exe", ignoreCase = true) }
                     .mapNotNull { it.rssMb }.takeIf { it.isNotEmpty() }?.maxOrNull(),
+                jatekSwapMb = minta.folyamatok.filter { it.nev.endsWith(".exe", ignoreCase = true) }
+                    .mapNotNull { it.swapMb }.takeIf { it.isNotEmpty() }?.sum(),
+                psiMem = minta.memoria["psiMem"],
             )
         }
     }
@@ -343,6 +363,14 @@ object Rendszerezo {
         "services.exe", "explorer.exe", "winedevice.exe", "svchost.exe", "plugplay.exe", "rpcss.exe",
         "start.exe", "winhandler.exe", "tabtip.exe", "conhost.exe",
     )
+
+    private fun memoriaElvetel(sorok: List<Masodperc>, i: Int): Boolean {
+        val most = sorok[i].jatekRssMb ?: return false
+        val elotte = sorok.subList(maxOf(0, i - 5), i).mapNotNull { it.jatekRssMb }.maxOrNull() ?: return false
+        val elozoMost = if (i > 0) sorok[i - 1].jatekRssMb else null
+        // count each shrink once: only when the previous second was not already 150 MB below
+        return elotte - most >= 150 && (elozoMost == null || elotte - elozoMost < 150)
+    }
 
     private fun fajlIdovonal(m: Munkamenet): Map<String, List<Pair<Double, Long>>> {
         val eredmeny = LinkedHashMap<String, MutableList<Pair<Double, Long>>>()
@@ -504,6 +532,25 @@ object Rendszerezo {
             bizonyitek += "Android hőállapot: $hoAllapot"
         }
 
+        // The system takes memory back from the game (RSS shrinks / swap grows) or tasks stall on memory
+        val rssElotte = k.idovonal.filter { it.t in (kezd - 6) until kezd }.mapNotNull { it.jatekRssMb }.maxOrNull()
+        val rssMin = ablak.mapNotNull { it.jatekRssMb }.minOrNull()
+        if (rssElotte != null && rssMin != null && rssElotte - rssMin >= 150) {
+            add(Ok.MEMORIA, 0.35)
+            bizonyitek += "A rendszer elvett a játék memóriájából: $rssElotte → $rssMin MB"
+        }
+        val swapElotte = k.idovonal.filter { it.t in (kezd - 6) until kezd }.mapNotNull { it.jatekSwapMb }.minOrNull()
+        val swapMax = ablak.mapNotNull { it.jatekSwapMb }.maxOrNull()
+        if (swapElotte != null && swapMax != null && swapMax - swapElotte >= 100) {
+            add(Ok.MEMORIA, 0.25)
+            bizonyitek += "A játék memóriájából tömörített cserehelyre került: +${swapMax - swapElotte} MB"
+        }
+        val psi = ablak.mapNotNull { it.psiMem }.maxOrNull()
+        if (psi != null && psi >= 10.0) {
+            add(Ok.MEMORIA, min(0.4, psi / 100.0 + 0.1))
+            bizonyitek += "Memóriára várakozás (PSI): ${psi.roundToInt()}%"
+        }
+
         // Memory
         val mem = ablak.mapNotNull { it.memSzabadMb }.minOrNull()
         if (mem != null && mem < MEM_KEVES_MB) {
@@ -605,12 +652,25 @@ object Rendszerezo {
             Ok.HO -> "Melegedés miatti lassítás" to
                 "A mérés közben a telefon a hő miatt tovább csökkentette a processzor órajelét. Teendő: alacsonyabb FPS-limit, " +
                 "tok levétele, hűtő használata."
-            Ok.MEMORIA -> "Kevés szabad memória" to
-                "Az esések alatt alig volt szabad memória. Teendő: zárd be a többi appot a játék indítása előtt."
+            Ok.MEMORIA -> "Memóriahiány: a rendszer elveszi a játék memóriáját" to memoriaSzoveg(e)
             else -> "Nem egyértelmű ok" to
                 "Ezeknél az eséseknél a mért adatokból nem rajzolódik ki egy fő ok. Teendő: a „Jelölés” gombbal jelöld meg, " +
                 "mikor lép be a menübe, és vegyél fel még egy mérést."
         }
+    }
+
+    private fun memoriaSzoveg(e: Elemzes): String {
+        val korlat = e.maxEszkozMemoria
+        val korlatSzoveg = when {
+            korlat == null -> "Állítsd be a konténer grafikus driver beállításaiban a „Max Device Memory” értékét 4096 MB-ra."
+            korlat == 0 -> "A konténerben a „Max Device Memory” most korlátlan (0), így a játék azt hiszi, rengeteg videomemóriája van, " +
+                "és sok textúrát tart bent. Állítsd 4096 MB-ra (Grafika fül → Max Device Memory); ha még mindig van ilyen esés, 2048-ra."
+            korlat > 2048 -> "A „Max Device Memory” most $korlat MB – próbáld 2048 MB-tal."
+            else -> "A „Max Device Memory” már $korlat MB; a játékban vedd lejjebb a textúra- és árnyékminőséget."
+        }
+        return "A telefonon kevés a szabad memória, ezért az Android a futó játéktól is elvesz" +
+            (e.minJatekRssMb?.let { min -> e.maxJatekRssMb?.let { max -> " (a játék memóriája $max és $min MB között ingadozott)" } } ?: "") +
+            ", és amit utána újra használna, azt lassan kapja vissza. Teendő: $korlatSzoveg Zárd be a többi appot a játék előtt."
     }
 
     private fun hattertarSzoveg(e: Elemzes): String {
@@ -636,8 +696,8 @@ object Rendszerezo {
                 alap + "A játék SD-kártyán van, ami lassabb a belső tárhelynél. Teendő: kapcsold be a konténerben a " +
                     "„Faster loading from external storage” beállítást, vagy tedd a játékot a belső tárhelyre."
             "belso", "appSajatKulso" ->
-                alap + "A játék már gyors helyen van, ezért itt inkább a sok kis olvasás és a kevés szabad memória (gyorsítótár) a gond. " +
-                    "Teendő: zárd be a többi appot a játék előtt, hogy több memória maradjon a fájlok gyorsítótárára."
+                alap + "A játék már gyors helyen van: nem a tárhely lassú, hanem a kevés szabad memória miatt a már beolvasott adat " +
+                    "kiszorul, és újra be kell olvasni. " + memoriaSzoveg(e)
             else ->
                 alap + "Teendő: a játék fájljai a belső tárhelyen legyenek (ne SD-kártyán), és legyen bőven szabad hely. " +
                     "(A játék mappáját az app a következő méréstől rögzíti, abból pontosabb tanács adható.)"

@@ -159,7 +159,15 @@ ul{margin:4px 0 0 18px;padding:0}
                 }
                 append("</table><p class=\"muted small\">A „kiszorult” rész a kevés szabad memória miatt kikerült a gyorsítótárból, ")
                     .append("ha újra kell, megint a tárhelyről jön.")
-                e.maxJatekRssMb?.let { append(" A játék memóriahasználata csúcson: ").append(it).append(" MB.") }
+                e.maxJatekRssMb?.let { max ->
+                    append(" A játék memóriahasználata: ").append(e.minJatekRssMb ?: max).append("–").append(max).append(" MB")
+                    if (e.memoriaElvetelDb > 0) append(", a rendszer ").append(e.memoriaElvetelDb).append("× vett el belőle legalább 150 MB-ot")
+                    e.maxJatekSwapMb?.takeIf { it > 0 }?.let { append(", tömörített cserehelyen csúcson ").append(it).append(" MB") }
+                    append(".")
+                }
+                e.maxEszkozMemoria?.let {
+                    append(" Max Device Memory: ").append(if (it == 0) "korlátlan (0)" else "$it MB").append(".")
+                }
                 append("</p></div>")
             }
 

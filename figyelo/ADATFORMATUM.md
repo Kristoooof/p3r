@@ -26,8 +26,9 @@ Minden `.jsonl` fájlban soronként egy JSON objektum van; a `t` a mérés kezde
 | `hom` | `{cpu, akku, bor}` °C |
 | `hoAllapot` | Android hőállapot (0 = nincs, 3 = súlyos, …) |
 | `memSzabadMb` | szabad memória |
-| `folyamatok` | `[{pid, nev, cpu, olv, rchar, mf, blk}]` – a játék oldali folyamatok (az app uid-ja), CPU % (100 = egy mag), `olv` = tárhelyről olvasott bájt/s, `rchar` = olvasott bájt/s gyorsítótárral, `mf` = major laphiba/s (memóriába leképezett fájlok olvasása), `blk` = I/O-várakozás % (csak ha a kernel méri), `rssMb` = memóriahasználat |
+| `folyamatok` | `[{pid, nev, cpu, olv, rchar, mf, blk}]` – a játék oldali folyamatok (az app uid-ja), CPU % (100 = egy mag), `olv` = tárhelyről olvasott bájt/s, `rchar` = olvasott bájt/s gyorsítótárral, `mf` = major laphiba/s (memóriába leképezett fájlok olvasása), `blk` = I/O-várakozás % (csak ha a kernel méri), `rssMb` = memóriahasználat, `swapMb` = tömörített cserehelyre (zram) került rész (csak a játék .exe folyamatainál) |
 | `szunet` | 1, ha a GameNative épp szünetelteti a játékot (gyorsmenü / overlay, SIGSTOP) |
+| `memoria` | ~5 mp-enként: `/proc/meminfo` bontás MB-ban (`elerheto`, `gyorsitotar`, `anon`, `lekepezett`, `shmem`, `swapOssz`, `swapSzabad`, `kernelVisszaveheto`), PSI `psiMem` / `psiIo` (% az utolsó 10 mp-ből, ha olvasható), `gpuLapMb` (kgsl, ha olvasható) |
 | `gyorsitotar` | ~5 mp-enként: `[[fájl, bent MB, méret MB], …]` – a játék nagy fájljaiból (pak, exe, dll, ≥16 MB) mennyi van a memóriában (mincore) |
 | `szalak` | `[{pid, tid, nev, kat, cpu, all, mf}]` – a legterheltebb (≥1%) szálak, a laphibázó és a `D` (I/O-ra váró) állapotú szálak, max. 40; `kat`: shader, betoltes, render, jatek, munkaszal, hang, wine, egyeb |
 

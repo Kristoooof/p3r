@@ -47,6 +47,8 @@ data class Folyamat(
     /** % of the second spent waiting for block I/O (delay accounting; 0 when unavailable) */
     val blk: Int = 0,
     val rssMb: Int? = null,
+    /** swapped-out (zram) part of the process, MB */
+    val swapMb: Int? = null,
 )
 
 /** Page-cache residency of one big game file at a sample (every ~5 s). */
@@ -73,6 +75,8 @@ data class Minta(
     /** game paused by GameNative (quick menu / overlay) */
     val szunet: Boolean = false,
     val gyorsitotar: List<FajlAllapot> = emptyList(),
+    /** /proc/meminfo breakdown + PSI, every ~5 s (keys: elerheto, gyorsitotar, anon, swapOssz, swapSzabad, psiMem, psiIo, …) */
+    val memoria: Map<String, Double> = emptyMap(),
 )
 
 data class KepkockaCsomag(val t: Double, val ms: List<Double>)
@@ -148,6 +152,7 @@ object Beolvaso {
                     mf = p.optInt("mf"),
                     blk = p.optInt("blk"),
                     rssMb = p.optIntOrNull("rssMb"),
+                    swapMb = p.optIntOrNull("swapMb"),
                 )
             },
             szalak = o.optJSONArray("szalak").objects().map { s ->
@@ -162,6 +167,9 @@ object Beolvaso {
                 )
             },
             szunet = o.optInt("szunet") == 1,
+            memoria = o.optJSONObject("memoria")?.let { mem ->
+                mem.keys().asSequence().mapNotNull { k -> mem.optDoubleOrNull(k)?.let { k to it } }.toMap()
+            } ?: emptyMap(),
             gyorsitotar = o.optJSONArray("gyorsitotar").let { arr ->
                 if (arr == null) {
                     emptyList()

@@ -105,6 +105,10 @@ Eredeti terv:
 - Szálnevek átjönnek (~80%): GameThread = `P3R.exe` fő szál, `RHIThread`, `RenderThread 1`, `TaskGraphThread`,
   `FAsyncLoadingThread`, `IoDispatcher`, `IoService`, `PoolThread N`, `vkd3d_queue`.
 - A gyorsmenü megnyitása szünetelteti a játékot (SIGSTOP) → ezek a másodpercek nem esések.
+- 4. mérés (fájl-gyorsítótár követéssel): a játék a `pakchunk0-WindowsNoEditor.ucas` (IoStore) fájlból olvas, a beolvasott
+  adat gyorsan kiszorul (907 MB be / 1109 MB ki 8 perc alatt), a játék RSS-e 1021 → 335 MB-ig zsugorodik → **memóriahiány**,
+  nem lassú tárhely. Gyanú: a korlátlan „Max Device Memory” (WRAPPER_VMEM_MAX_SIZE=0) miatt a játék nagy GPU-memóriát lát és
+  sokat foglal. Következő kísérlet: Max Device Memory = 4096 MB.
 - A 2. fázis (FEX profilozó) jelenleg alacsony hozamú: a telített fő szál az esésidő csak 1–15%-a.
 
 ## Nyitott kérdések
