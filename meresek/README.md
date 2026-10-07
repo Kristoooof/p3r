@@ -11,6 +11,7 @@ A Figyelő „Nyers adatok” zipjei. Újat ide (vagy a repó gyökerébe) lehet
 | 20261006-204742_Persona_3_Reload.zip | 5. mérés, 9 perc, Max Device Memory = 4096 MB (még a mérő v4-gyel, memória-bontás nélkül) | medián 25, 1% low 5,2, esésidő 191 mp, 6,6 GB beolvasás; P3R RSS ~200–870 MB; a Wine-folyamatok elhanyagolhatók. **Nem összehasonlítható**: első Tartarus-látogatás, üres shader- és fájl-gyorsítótár → a 4096-os beállítás hatása eldöntetlen |
 | 20261006-215506_Persona_3_Reload.zip | 6. mérés (mérő v5), 5,6 perc, Tartarus 2. látogatás, 100% render, Max Device Memory = 4096 | medián 32, 1% low 14,8, esésidő 15 mp; beolvasás csak 39 MB/perc (4. mérés: 600 MB/perc); maradék esések: melegedés (plafon 1920 MHz) |
 | 20261006-222728_Persona_3_Reload.zip | 7. mérés (mérő v5), 5 perc, dorm, 75% render, Max Device Memory = 4096 | medián 30 (limit), 1% low 14,9, esésidő 5 mp; beolvasás 45 MB/perc |
+| 20261007-075850_Persona_3_Reload.zip | 8. mérés (mérő v5), 6 perc, dorm, 75% render, Max Device Memory = 2048 | medián 34, 1% low 16,4, esésidő 12 mp; beolvasás 65 MB/perc; **CPU-plafon 99%** (most nem volt HyperOS-korlát) → a 2048 vs 4096 különbség nem mérhető, az FPS-javulás főleg a korlát hiányából jön |
 
 Memória (6–7. mérés mediánja): 11,2 GB-ból elérhető ~1,2 GB; cserehelyen (zram) 7–7,7 GB, ebből a P3R 2,3–2,7 GB
 (RSS csak 0,5–0,7 GB); „nem követett” ~7,5 GB = GPU/driver + zram saját memóriája (v6-tól külön mérve, ha olvasható).

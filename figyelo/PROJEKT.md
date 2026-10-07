@@ -116,6 +116,8 @@ Eredeti terv:
 - 6–7. mérés (v5, Max Device Memory = 4096, ismert helyszínek): beolvasás 600 → ~40 MB/perc, esésidő 5–15 mp / 5 perc,
   1% low ~15. **A Max Device Memory = 4096 a fő javítás** (játékprofilba való). Maradék: melegedés (plafon akár 1920 MHz),
   HyperOS ~75%-os plafon, a P3R memóriájának ~80%-a zram-ban (CPU-t visz a kitömörítés).
+- 8. mérés (2048 MB, dorm, 75%): ugyanolyan alacsony újraolvasás, 1% low 16,4, medián 34; a HyperOS-plafon ezúttal 99%
+  volt (a korlát dinamikus). 2048 és 4096 között nincs mérhető különbség → a profilba 4096 (jobb textúrák, ugyanaz a hatás).
 - A 2. fázis (FEX profilozó) jelenleg alacsony hozamú: a telített fő szál az esésidő csak 1–15%-a.
 
 ## Nyitott kérdések
